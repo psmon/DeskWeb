@@ -150,6 +150,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openNotepadWindow(null);
           }
+        },
+        {
+          id: "solitaire",
+          label: "Solitaire",
+          icon: "deskweb/images/cards.svg",
+          defaultLeft: 20,
+          defaultTop: 420,
+          action: function() {
+            this._openSolitaireWindow();
+          }
         }
       ];
 
@@ -233,6 +243,9 @@ qx.Class.define("deskweb.Application",
         case "notepad":
           this._openNotepadWindow(null);
           break;
+        case "solitaire":
+          this._openSolitaireWindow();
+          break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
           break;
@@ -311,6 +324,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened Notepad with file:", filePath);
+    },
+
+    /**
+     * Open Solitaire window
+     */
+    _openSolitaireWindow: function() {
+      var win = new deskweb.ui.SolitaireWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Solitaire game");
     },
 
     /**

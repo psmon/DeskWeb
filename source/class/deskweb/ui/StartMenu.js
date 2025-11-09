@@ -62,6 +62,7 @@ qx.Class.define("deskweb.ui.StartMenu", {
     this._addMenuItem("My Documents", "folder", "mydocuments");
     this._addSeparator();
     this._addMenuItem("Notepad", "text-editor", "notepad");
+    this._addMenuItem("Solitaire", "games-card", "solitaire");
     this._addSeparator();
     this._addMenuItem("Control Panel", "preferences-system", "controlpanel");
     this._addSeparator();

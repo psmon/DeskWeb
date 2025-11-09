@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Back card -->
+  <rect x="8" y="4" width="32" height="44" rx="3" fill="#1E5A8E" stroke="#000" stroke-width="1"/>
+  <rect x="10" y="6" width="28" height="40" rx="2" fill="none" stroke="#fff" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- Front card -->
+  <rect x="24" y="16" width="32" height="44" rx="3" fill="#fff" stroke="#000" stroke-width="1"/>
+
+  <!-- Heart symbol -->
+  <path d="M 40 28 Q 40 24 37 24 Q 34 24 34 28 Q 34 24 31 24 Q 28 24 28 28 Q 28 32 34 38 Q 40 32 40 28 Z" fill="#d00"/>
+
+  <!-- Rank A -->
+  <text x="29" y="26" font-family="Arial" font-size="8" font-weight="bold" fill="#d00">A</text>
+</svg>
