@@ -1,0 +1,9 @@
+version: '2'
+services:  
+  deskweb-prod:
+    image: psmon/webos:latest    
+    ports:
+      - "9000:80"
+    restart: unless-stopped
+    labels:
+      io.rancher.scheduler.affinity:host_label: server=late02

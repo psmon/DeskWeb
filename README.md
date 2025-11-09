@@ -36,6 +36,10 @@ qooxdoo 프레임워크를 사용하여 구현한 Windows XP 스타일의 웹 �
    qx serve --listen-port=8080
    ```
 
+    ```bash
+    qx compile && qx serve --listen-port=8080
+    ```
+
 4. **브라우저에서 접속**
    ```
    http://localhost:8080/deskweb/
