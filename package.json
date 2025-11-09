@@ -16,5 +16,9 @@
   ],
   "author": "DeskWeb Team",
   "license": "MIT",
+  "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.79",
+    "@picovoice/picollm-web": "^1.3.0"
+  },
   "devDependencies": {}
 }

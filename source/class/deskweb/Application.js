@@ -160,6 +160,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openSolitaireWindow();
           }
+        },
+        {
+          id: "chatbot",
+          label: "AI ChatBot",
+          icon: "deskweb/images/chatbot.svg",
+          defaultLeft: 20,
+          defaultTop: 520,
+          action: function() {
+            this._openChatBotWindow();
+          }
         }
       ];
 
@@ -245,6 +255,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "solitaire":
           this._openSolitaireWindow();
+          break;
+        case "chatbot":
+          this._openChatBotWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -339,6 +352,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened Solitaire game");
+    },
+
+    /**
+     * Open ChatBot window
+     */
+    _openChatBotWindow: function() {
+      var win = new deskweb.ui.ChatBotWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened AI ChatBot");
     },
 
     /**

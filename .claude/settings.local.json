@@ -26,7 +26,8 @@
       "Bash(qx:*)",
       "Bash(docker logs:*)",
       "Bash(docker exec:*)",
-      "Bash(docker ps:*)"
+      "Bash(docker ps:*)",
+      "WebFetch(domain:mcp.webnori.com)"
     ],
     "deny": [],
     "ask": []
