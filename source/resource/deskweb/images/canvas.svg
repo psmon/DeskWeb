@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48" height="48">
+  <!-- Background -->
+  <rect width="64" height="64" rx="8" fill="#2c3e50"/>
+  
+  <!-- Canvas frame -->
+  <rect x="8" y="8" width="48" height="48" rx="4" fill="#34495e"/>
+  <rect x="12" y="12" width="40" height="40" rx="2" fill="#000000"/>
+  
+  <!-- Circular pattern -->
+  <circle cx="32" cy="32" r="6" fill="none" stroke="#3498db" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="32" cy="32" r="10" fill="none" stroke="#9b59b6" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="32" cy="32" r="14" fill="none" stroke="#e74c3c" stroke-width="1.5" opacity="0.4"/>
+  
+  <!-- Sparkles -->
+  <circle cx="20" cy="20" r="1.5" fill="#f39c12" opacity="0.9"/>
+  <circle cx="44" cy="24" r="1" fill="#e67e22" opacity="0.8"/>
+  <circle cx="38" cy="44" r="1.5" fill="#1abc9c" opacity="0.9"/>
+  <circle cx="24" cy="42" r="1" fill="#16a085" opacity="0.7"/>
+</svg>

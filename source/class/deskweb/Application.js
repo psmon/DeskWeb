@@ -170,6 +170,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openChatBotWindow();
           }
+        },
+        {
+          id: "canvas-demo",
+          label: "Canvas Demo",
+          icon: "deskweb/images/canvas.svg",
+          defaultLeft: 20,
+          defaultTop: 620,
+          action: function() {
+            this._openCanvasDemoWindow();
+          }
         }
       ];
 
@@ -258,6 +268,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "chatbot":
           this._openChatBotWindow();
+          break;
+        case "canvas-demo":
+          this._openCanvasDemoWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -367,6 +380,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened AI ChatBot");
+    },
+
+    /**
+     * Open Canvas Demo window
+     */
+    _openCanvasDemoWindow: function() {
+      var win = new deskweb.ui.CanvasDemoWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Canvas Demo");
     },
 
     /**
