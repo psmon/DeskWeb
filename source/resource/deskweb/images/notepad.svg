@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Notepad body (white paper) -->
+  <rect x="12" y="8" width="40" height="52" fill="#FFFFFF" stroke="#333333" stroke-width="2" rx="2"/>
+
+  <!-- Notepad top binding (blue header) -->
+  <rect x="12" y="8" width="40" height="6" fill="#4A90E2" stroke="#333333" stroke-width="2" rx="2"/>
+
+  <!-- Spiral binding holes -->
+  <circle cx="18" cy="11" r="1.5" fill="#333333"/>
+  <circle cx="26" cy="11" r="1.5" fill="#333333"/>
+  <circle cx="34" cy="11" r="1.5" fill="#333333"/>
+  <circle cx="42" cy="11" r="1.5" fill="#333333"/>
+  <circle cx="46" cy="11" r="1.5" fill="#333333"/>
+
+  <!-- Text lines on paper -->
+  <line x1="16" y1="20" x2="48" y2="20" stroke="#CCCCCC" stroke-width="1.5"/>
+  <line x1="16" y1="26" x2="48" y2="26" stroke="#CCCCCC" stroke-width="1.5"/>
+  <line x1="16" y1="32" x2="48" y2="32" stroke="#CCCCCC" stroke-width="1.5"/>
+  <line x1="16" y1="38" x2="42" y2="38" stroke="#CCCCCC" stroke-width="1.5"/>
+  <line x1="16" y1="44" x2="48" y2="44" stroke="#CCCCCC" stroke-width="1.5"/>
+  <line x1="16" y1="50" x2="36" y2="50" stroke="#CCCCCC" stroke-width="1.5"/>
+
+  <!-- Pen/Pencil overlay -->
+  <g transform="translate(36, 36) rotate(-45)">
+    <!-- Pencil body -->
+    <rect x="0" y="-2" width="16" height="4" fill="#FFD700" stroke="#333333" stroke-width="0.8"/>
+    <!-- Pencil tip -->
+    <polygon points="16,-2 20,0 16,2" fill="#E6B800" stroke="#333333" stroke-width="0.8"/>
+    <!-- Pencil point -->
+    <polygon points="20,0 22,0 21,0" fill="#333333"/>
+    <!-- Eraser -->
+    <rect x="-3" y="-2" width="3" height="4" fill="#FF6B6B" stroke="#333333" stroke-width="0.8"/>
+    <!-- Metal band -->
+    <rect x="-0.5" y="-2" width="1" height="4" fill="#999999"/>
+  </g>
+</svg>

@@ -4,22 +4,66 @@ qooxdoo 프레임워크를 사용하여 구현한 Windows XP 스타일의 웹 �
 
 ## 📸 주요 기능
 
+### 🖥️ 데스크톱 환경
 - ✅ Windows XP 파란색 배경 데스크톱
-- ✅ 드래그 가능한 데스크톱 아이콘 (내 컴퓨터, 내 문서, 휴지통)
+- ✅ 드래그 가능한 데스크톱 아이콘 (내 컴퓨터, 내 문서, 휴지통, 메모장)
+- ✅ **아이콘 위치 자동 저장** - 사용자별로 아이콘 배치 유지
 - ✅ 하단 작업표시줄 (시작 버튼 + 창 버튼 + 시스템 트레이)
 - ✅ 시작 메뉴 팝업
 - ✅ 윈도우 관리 (열기, 최소화, 최대화, 닫기)
 - ✅ 시계 클릭 시 달력 표시
 - ✅ 활성/비활성 윈도우 구분 (색상 차별화)
 
+### 📁 파일 시스템
+- ✅ **가상 파일 시스템** - localStorage 기반 파일 저장
+- ✅ **세션 기반 격리** - 사용자별 독립적인 파일 공간
+- ✅ **파일 탐색기** - Windows Explorer 스타일 파일 브라우저
+- ✅ **파일 확장자 매핑** - 확장자별 애플리케이션 자동 실행
+
+### 📝 애플리케이션
+- ✅ **메모장 (Notepad)**
+  - 텍스트 및 Markdown 편집 지원
+  - 편집 모드 / 미리보기 모드 전환
+  - 자동 저장 기능 (2초 타이핑 중단 후)
+  - 파일 열기/저장 기능
+  - Markdown 실시간 렌더링
+- ✅ **내 컴퓨터 (My Computer)**
+  - 가상 파일 시스템 탐색
+  - 파일/폴더 브라우징
+  - 파일 더블클릭으로 열기
+
 ## 🚀 시작하기
 
 ### 필수 요구사항
 
-- Node.js (v14 이상)
-- npm
+- Docker & Docker Compose (권장) 또는
+- Node.js (v18 이상) + npm
 
-### 설치 및 실행
+### 🐳 Docker로 실행 (권장)
+
+#### 개발 모드
+```bash
+# 개발 모드 실행 (소스 변경 시 재컴파일 필요)
+docker-compose --profile dev up deskweb-dev -d
+
+# 소스 변경 후 재컴파일
+docker exec deskweb-dev qx compile --target=source
+
+# 로그 확인
+docker logs deskweb-dev -f
+```
+
+브라우저에서 접속: **http://localhost:9090/deskweb/**
+
+#### 프로덕션 모드
+```bash
+# 프로덕션 빌드 및 실행
+docker-compose up deskweb-prod -d
+```
+
+브라우저에서 접속: **http://localhost:80/deskweb/**
+
+### 💻 로컬 개발 환경
 
 1. **qooxdoo 컴파일러 설치**
    ```bash
@@ -28,17 +72,13 @@ qooxdoo 프레임워크를 사용하여 구현한 Windows XP 스타일의 웹 �
 
 2. **프로젝트 컴파일**
    ```bash
-   qx compile
+   qx compile --target=source
    ```
 
 3. **개발 서버 실행**
    ```bash
    qx serve --listen-port=8080
    ```
-
-    ```bash
-    qx compile && qx serve --listen-port=8080
-    ```
 
 4. **브라우저에서 접속**
    ```
@@ -65,18 +105,26 @@ DeskWeb/
 │   │       │   ├── Theme.js           # 메타 테마
 │   │       │   ├── Color.js           # 색상 정의
 │   │       │   ├── Decoration.js      # 데코레이션 (테두리, 배경)
-│   │       │   └── Appearance.js      # 위젯 외형
-│   │       └── ui/                    # UI 컴포넌트
-│   │           ├── DesktopIcon.js     # 드래그 가능한 아이콘
-│   │           ├── Taskbar.js         # 작업표시줄
-│   │           ├── StartMenu.js       # 시작 메뉴
-│   │           └── MyComputerWindow.js # 내 컴퓨터 창
+│   │       │   ├── Appearance.js      # 위젯 외형
+│   │       │   └── Font.js            # 폰트 정의
+│   │       ├── ui/                    # UI 컴포넌트
+│   │       │   ├── DesktopIcon.js     # 드래그 가능한 아이콘
+│   │       │   ├── Taskbar.js         # 작업표시줄
+│   │       │   ├── StartMenu.js       # 시작 메뉴
+│   │       │   ├── MyComputerWindow.js # 내 컴퓨터 창
+│   │       │   ├── FileExplorer.js    # 파일 탐색기
+│   │       │   └── NotepadWindow.js   # 메모장 애플리케이션
+│   │       └── util/                  # 유틸리티 클래스
+│   │           ├── StorageManager.js  # 가상 파일 시스템
+│   │           ├── FileExtensionRegistry.js # 파일 확장자 매핑
+│   │           └── IconPositionManager.js   # 아이콘 위치 관리
 │   ├── resource/
 │   │   └── deskweb/
 │   │       └── images/                # 아이콘 이미지
-│   │           ├── computer.svg
-│   │           ├── folder.svg
-│   │           └── recyclebin.svg
+│   │           ├── computer.svg       # 내 컴퓨터 아이콘
+│   │           ├── folder.svg         # 폴더 아이콘
+│   │           ├── recyclebin.svg     # 휴지통 아이콘
+│   │           └── notepad.svg        # 메모장 아이콘 (커스텀)
 │   └── translation/
 ├── compiled/                          # 컴파일된 파일 (자동 생성)
 │   ├── source/                       # 개발 빌드
@@ -84,6 +132,9 @@ DeskWeb/
 ├── compile.json                      # qooxdoo 컴파일러 설정
 ├── Manifest.json                     # 애플리케이션 메타데이터
 ├── package.json                      # npm 의존성
+├── Dockerfile                        # 프로덕션 Docker 이미지
+├── Dockerfile.dev                    # 개발용 Docker 이미지
+├── docker-compose.yml                # Docker Compose 설정
 └── README.md                         # 프로젝트 문서
 ```
 
@@ -339,6 +390,24 @@ qooxdoo 컴파일러 설정 파일입니다.
 1. **시간 확인**: 작업표시줄 오른쪽 시계 확인
 2. **달력 보기**: 시계 클릭
 3. **날짜 선택**: 달력에서 날짜 클릭
+
+### 파일 시스템 사용
+
+1. **파일 생성**: 메모장에서 텍스트 작성 후 File → Save As
+2. **파일 열기**: 내 컴퓨터에서 파일 더블클릭
+3. **폴더 탐색**: 내 컴퓨터에서 폴더 더블클릭으로 이동
+4. **위로 이동**: 파일 탐색기의 "Up" 버튼 클릭
+
+### 아이콘 위치 저장
+
+1. **아이콘 배치**: 아이콘을 원하는 위치로 드래그
+2. **자동 저장**: 드래그 종료 시 자동으로 위치 저장
+3. **위치 복원**: 페이지 새로고침 또는 재접속 시 자동 복원
+4. **초기화**: 브라우저 콘솔에서 실행
+   ```javascript
+   deskweb.util.IconPositionManager.getInstance().clearAllPositions()
+   location.reload()
+   ```
 
 ## 🛠️ 개발 가이드
 

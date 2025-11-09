@@ -20,11 +20,12 @@ services:
       dockerfile: Dockerfile.dev
     container_name: deskweb-dev
     ports:
-      - "8080:8080"
+      - "9090:8080"
     volumes:
-      - ./source:/app/source:ro
+      - ./source:/app/source
       - ./compile.json:/app/compile.json:ro
       - ./Manifest.json:/app/Manifest.json:ro
+      - ./compiled:/app/compiled
     restart: unless-stopped
     networks:
       - deskweb-network

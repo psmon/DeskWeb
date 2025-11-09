@@ -11,156 +11,84 @@
 /**
  * My Computer Window
  *
- * Displays system drives and folders
+ * Displays file explorer for the virtual file system
  */
 qx.Class.define("deskweb.ui.MyComputerWindow", {
   extend: qx.ui.window.Window,
 
-  construct: function() {
+  construct: function(initialPath) {
     this.base(arguments, "My Computer");
 
+    this.__initialPath = initialPath || "/";
+
     this.set({
-      width: 600,
-      height: 400,
+      width: 700,
+      height: 500,
       showMinimize: true,
       showMaximize: true,
       showClose: true,
       contentPadding: 0
     });
 
-    this.setLayout(new qx.ui.layout.VBox());
+    this.setLayout(new qx.ui.layout.VBox(0));
 
-    // Toolbar
-    var toolbar = new qx.ui.toolbar.ToolBar();
-    toolbar.set({
-      backgroundColor: "#ECE9D8"
-    });
+    // Create file explorer
+    this.__fileExplorer = new deskweb.ui.FileExplorer(this.__initialPath);
 
-    var backButton = new qx.ui.toolbar.Button("Back", null);
-    var forwardButton = new qx.ui.toolbar.Button("Forward", null);
-    var upButton = new qx.ui.toolbar.Button("Up", null);
+    // Listen for file open events
+    this.__fileExplorer.addListener("openFile", this._onFileOpen, this);
 
-    toolbar.add(backButton);
-    toolbar.add(forwardButton);
-    toolbar.add(new qx.ui.toolbar.Separator());
-    toolbar.add(upButton);
-    toolbar.add(new qx.ui.core.Spacer(), {flex: 1});
+    // Listen for path changes to update title
+    this.__fileExplorer.addListener("pathChanged", this._onPathChanged, this);
 
-    this.add(toolbar);
+    this.add(this.__fileExplorer, {flex: 1});
 
-    // Address bar
-    var addressBar = new qx.ui.container.Composite(new qx.ui.layout.HBox(4));
-    addressBar.set({
-      backgroundColor: "#ECE9D8",
-      padding: 4
-    });
+    console.log("[MyComputerWindow] Created with path:", this.__initialPath);
+  },
 
-    var addressLabel = new qx.ui.basic.Label("Address:");
-    var addressField = new qx.ui.form.TextField("My Computer");
-    addressField.set({
-      readOnly: true
-    });
-
-    addressBar.add(addressLabel);
-    addressBar.add(addressField, {flex: 1});
-
-    this.add(addressBar);
-
-    // Content area
-    var contentArea = new qx.ui.container.Composite(new qx.ui.layout.VBox(10));
-    contentArea.set({
-      backgroundColor: "white",
-      padding: 20
-    });
-
-    // System Tasks section
-    var tasksLabel = new qx.ui.basic.Label("<b>System Tasks</b>");
-    tasksLabel.setRich(true);
-    contentArea.add(tasksLabel);
-
-    var viewSystemInfo = this._createLink("View system information");
-    var addRemovePrograms = this._createLink("Add or remove programs");
-    var changeSettings = this._createLink("Change a setting");
-
-    contentArea.add(viewSystemInfo);
-    contentArea.add(addRemovePrograms);
-    contentArea.add(changeSettings);
-
-    contentArea.add(new qx.ui.core.Spacer().set({height: 10}));
-
-    // Drives section
-    var drivesLabel = new qx.ui.basic.Label("<b>Hard Disk Drives</b>");
-    drivesLabel.setRich(true);
-    contentArea.add(drivesLabel);
-
-    // C: Drive
-    var driveC = new qx.ui.container.Composite(new qx.ui.layout.HBox(10));
-    driveC.set({
-      padding: 10,
-      backgroundColor: "#F0F0F0",
-      decorator: new qx.ui.decoration.Decorator().set({
-        width: 1,
-        color: "#C0C0C0",
-        style: "solid"
-      })
-    });
-
-    var driveIcon = new qx.ui.basic.Label("💾");
-    driveIcon.set({
-      font: "bold",
-      fontSize: 24
-    });
-
-    var driveInfo = new qx.ui.container.Composite(new qx.ui.layout.VBox(2));
-    driveInfo.add(new qx.ui.basic.Label("Local Disk (C:)").set({font: "bold"}));
-    driveInfo.add(new qx.ui.basic.Label("System Drive"));
-
-    driveC.add(driveIcon);
-    driveC.add(driveInfo, {flex: 1});
-
-    contentArea.add(driveC);
-
-    this.add(contentArea, {flex: 1});
-
-    // Status bar
-    var statusBar = new qx.ui.toolbar.ToolBar();
-    statusBar.set({
-      backgroundColor: "#ECE9D8"
-    });
-
-    var statusLabel = new qx.ui.basic.Label("My Computer");
-    statusBar.add(statusLabel);
-
-    this.add(statusBar);
+  events: {
+    /** Fired when a file should be opened */
+    "openFile": "qx.event.type.Data"
   },
 
   members: {
+    __fileExplorer: null,
+    __initialPath: null,
+
     /**
-     * Create a clickable link
+     * Handle file open event from file explorer
      */
-    _createLink: function(text) {
-      var link = new qx.ui.basic.Label(text);
-      link.set({
-        textColor: "#0000EE",
-        cursor: "pointer",
-        paddingLeft: 20
-      });
+    _onFileOpen: function(e) {
+      var filePath = e.getData();
+      console.log("[MyComputerWindow] File open requested:", filePath);
 
-      link.addListener("mouseover", function() {
-        link.setTextColor("#551A8B");
-        link.setDecorator(new qx.ui.decoration.Decorator().set({
-          widthBottom: 1,
-          colorBottom: "#551A8B",
-          styleBottom: "solid"
-        }));
-      });
+      // Forward the event to parent (Application)
+      this.fireDataEvent("openFile", filePath);
+    },
 
-      link.addListener("mouseout", function() {
-        link.setTextColor("#0000EE");
-        link.setDecorator(null);
-      });
+    /**
+     * Handle path changed event
+     */
+    _onPathChanged: function(e) {
+      var path = e.getData();
 
-      return link;
+      // Update window title
+      if (path === "/" || path === "") {
+        this.setCaption("My Computer");
+      } else {
+        this.setCaption("My Computer - " + path);
+      }
+    },
+
+    /**
+     * Navigate to specific path
+     */
+    navigateToPath: function(path) {
+      this.__fileExplorer.setCurrentPath(path);
     }
+  },
+
+  destruct: function() {
+    this.__fileExplorer = null;
   }
 });

@@ -14,7 +14,19 @@
       "Bash(qx serve:*)",
       "Bash(tree:*)",
       "Bash(qx clean:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "mcp__memorizer__store",
+      "mcp__memorizer__create_relationship",
+      "Bash(docker-compose:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(lsof:*)",
+      "Bash(netstat:*)",
+      "Bash(ss:*)",
+      "Bash(qx:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)"
     ],
     "deny": [],
     "ask": []

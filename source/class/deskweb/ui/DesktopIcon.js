@@ -16,8 +16,14 @@
 qx.Class.define("deskweb.ui.DesktopIcon", {
   extend: qx.ui.basic.Atom,
 
-  construct: function(label, icon) {
+  construct: function(label, icon, iconId) {
     this.base(arguments, label, icon);
+
+    // Store unique icon ID
+    this.__iconId = iconId || label;
+
+    // Get position manager
+    this.__positionManager = deskweb.util.IconPositionManager.getInstance();
 
     // Configure appearance
     this.set({
@@ -52,6 +58,8 @@ qx.Class.define("deskweb.ui.DesktopIcon", {
   },
 
   members: {
+    __iconId: null,
+    __positionManager: null,
     __dragOffsetX: null,
     __dragOffsetY: null,
     __isDragging: false,
@@ -114,6 +122,30 @@ qx.Class.define("deskweb.ui.DesktopIcon", {
     _onDragEnd: function(e) {
       this.__isDragging = false;
       this.setCursor("pointer");
+
+      // Save new position
+      var layoutProps = this.getLayoutProperties();
+      var left = layoutProps.left || 0;
+      var top = layoutProps.top || 0;
+
+      if (this.__positionManager && this.__iconId) {
+        this.__positionManager.saveIconPosition(this.__iconId, left, top);
+        console.log("[DesktopIcon] Position saved for", this.__iconId + ":", left, top);
+      }
+    },
+
+    /**
+     * Get icon ID
+     */
+    getIconId: function() {
+      return this.__iconId;
+    },
+
+    /**
+     * Set icon ID
+     */
+    setIconId: function(iconId) {
+      this.__iconId = iconId;
     }
   }
 });

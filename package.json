@@ -1,0 +1,20 @@
+{
+  "name": "deskweb",
+  "version": "0.1.0",
+  "description": "Windows XP style web desktop application",
+  "scripts": {
+    "compile": "qx compile",
+    "compile:build": "qx compile --target=build",
+    "serve": "qx serve --listen-port=8080",
+    "dev": "qx compile && qx serve --listen-port=8080"
+  },
+  "keywords": [
+    "qooxdoo",
+    "desktop",
+    "windows-xp",
+    "web-os"
+  ],
+  "author": "DeskWeb Team",
+  "license": "MIT",
+  "devDependencies": {}
+}

@@ -30,6 +30,9 @@ qx.Class.define("deskweb.Application",
     __desktop: null,
     __taskbar: null,
     __startMenu: null,
+    __storage: null,
+    __registry: null,
+    __iconPositionManager: null,
 
     /**
      * This method contains the initial application code and gets called
@@ -56,6 +59,15 @@ qx.Class.define("deskweb.Application",
         Windows XP Desktop Application
       -------------------------------------------------------------------------
       */
+
+      console.log("[Application] Starting DeskWeb...");
+
+      // Initialize storage and registry singletons
+      this.__storage = deskweb.util.StorageManager.getInstance();
+      this.__registry = deskweb.util.FileExtensionRegistry.getInstance();
+      this.__iconPositionManager = deskweb.util.IconPositionManager.getInstance();
+
+      console.log("[Application] Storage, registry, and icon position manager initialized");
 
       var doc = this.getRoot();
 
@@ -84,35 +96,84 @@ qx.Class.define("deskweb.Application",
 
       // Create desktop icons
       this._createDesktopIcons();
+
+      console.log("[Application] DeskWeb started successfully");
     },
 
     /**
      * Create desktop icons
      */
     _createDesktopIcons: function() {
-      // My Computer icon
-      var myComputerIcon = new deskweb.ui.DesktopIcon("My Computer", "deskweb/images/computer.svg");
-      myComputerIcon.setLayoutProperties({left: 20, top: 20});
-      myComputerIcon.addListener("open", function() {
-        this._openMyComputerWindow();
-      }, this);
-      this.__desktop.add(myComputerIcon);
+      // Define icons with their IDs and default positions
+      var iconDefinitions = [
+        {
+          id: "my-computer",
+          label: "My Computer",
+          icon: "deskweb/images/computer.svg",
+          defaultLeft: 20,
+          defaultTop: 20,
+          action: function() {
+            this._openMyComputerWindow();
+          }
+        },
+        {
+          id: "my-documents",
+          label: "My Documents",
+          icon: "deskweb/images/folder.svg",
+          defaultLeft: 20,
+          defaultTop: 120,
+          action: function() {
+            var win = new deskweb.ui.MyComputerWindow("/Documents");
+            win.addListener("openFile", this._onFileOpenRequest, this);
+            this.__desktop.add(win);
+            this.__taskbar.attachWindow(win);
+            win.center();
+            win.open();
+          }
+        },
+        {
+          id: "recycle-bin",
+          label: "Recycle Bin",
+          icon: "deskweb/images/recyclebin.svg",
+          defaultLeft: 20,
+          defaultTop: 220,
+          action: function() {
+            this._openWindow("Recycle Bin", "Recycle Bin is empty.");
+          }
+        },
+        {
+          id: "notepad",
+          label: "Notepad",
+          icon: "deskweb/images/notepad.svg",
+          defaultLeft: 20,
+          defaultTop: 320,
+          action: function() {
+            this._openNotepadWindow(null);
+          }
+        }
+      ];
 
-      // My Documents icon
-      var myDocumentsIcon = new deskweb.ui.DesktopIcon("My Documents", "deskweb/images/folder.svg");
-      myDocumentsIcon.setLayoutProperties({left: 20, top: 120});
-      myDocumentsIcon.addListener("open", function() {
-        this._openWindow("My Documents", "My Documents folder contents would go here.");
-      }, this);
-      this.__desktop.add(myDocumentsIcon);
+      // Create each icon
+      iconDefinitions.forEach(function(iconDef) {
+        // Create icon with unique ID
+        var icon = new deskweb.ui.DesktopIcon(iconDef.label, iconDef.icon, iconDef.id);
 
-      // Recycle Bin icon
-      var recycleBinIcon = new deskweb.ui.DesktopIcon("Recycle Bin", "deskweb/images/recyclebin.svg");
-      recycleBinIcon.setLayoutProperties({left: 20, top: 220});
-      recycleBinIcon.addListener("open", function() {
-        this._openWindow("Recycle Bin", "Recycle Bin is empty.");
+        // Check if there's a saved position
+        var savedPosition = this.__iconPositionManager.getIconPosition(iconDef.id);
+        var left = savedPosition ? savedPosition.left : iconDef.defaultLeft;
+        var top = savedPosition ? savedPosition.top : iconDef.defaultTop;
+
+        // Set position
+        icon.setLayoutProperties({left: left, top: top});
+
+        // Add action listener
+        icon.addListener("open", iconDef.action, this);
+
+        // Add to desktop
+        this.__desktop.add(icon);
+
+        console.log("[Application] Created icon:", iconDef.id, "at position", left, top);
       }, this);
-      this.__desktop.add(recycleBinIcon);
     },
 
     /**
@@ -161,7 +222,16 @@ qx.Class.define("deskweb.Application",
           this._openMyComputerWindow();
           break;
         case "mydocuments":
-          this._openWindow("My Documents", "My Documents folder");
+          // Open My Computer at Documents folder
+          var win = new deskweb.ui.MyComputerWindow("/Documents");
+          win.addListener("openFile", this._onFileOpenRequest, this);
+          this.__desktop.add(win);
+          this.__taskbar.attachWindow(win);
+          win.center();
+          win.open();
+          break;
+        case "notepad":
+          this._openNotepadWindow(null);
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -176,13 +246,71 @@ qx.Class.define("deskweb.Application",
      * Open My Computer window
      */
     _openMyComputerWindow: function() {
-      var win = new deskweb.ui.MyComputerWindow();
+      var win = new deskweb.ui.MyComputerWindow("/");
+
+      // Listen for file open events from My Computer
+      win.addListener("openFile", this._onFileOpenRequest, this);
 
       this.__desktop.add(win);
       this.__taskbar.attachWindow(win);
 
       win.center();
       win.open();
+    },
+
+    /**
+     * Handle file open request
+     */
+    _onFileOpenRequest: function(e) {
+      var filePath = e.getData();
+      console.log("[Application] File open request:", filePath);
+
+      // Get file extension
+      var ext = this.__storage.getFileExtension(filePath);
+
+      // Get handler from registry
+      var handler = this.__registry.getHandler(ext);
+
+      if (!handler) {
+        console.warn("[Application] No handler for file:", filePath);
+        alert("No application associated with this file type.");
+        return;
+      }
+
+      console.log("[Application] Opening with handler:", handler.appName);
+
+      // Open file with appropriate application
+      this._openFileWithApp(filePath, handler.appId);
+    },
+
+    /**
+     * Open file with specific application
+     */
+    _openFileWithApp: function(filePath, appId) {
+      switch(appId) {
+        case "notepad":
+          this._openNotepadWindow(filePath);
+          break;
+
+        default:
+          console.warn("[Application] Unknown app ID:", appId);
+          alert("Application not implemented: " + appId);
+      }
+    },
+
+    /**
+     * Open Notepad window
+     */
+    _openNotepadWindow: function(filePath) {
+      var win = new deskweb.ui.NotepadWindow(filePath);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Notepad with file:", filePath);
     },
 
     /**
