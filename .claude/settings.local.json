@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:qooxdoo.org)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:archive.qooxdoo.org)",
+      "WebFetch(domain:www.qooxdoo.org)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:gist.github.com)",
+      "Bash(npm install:*)",
+      "Bash(qx create:*)",
+      "Bash(qx compile:*)",
+      "Bash(qx serve:*)",
+      "Bash(tree:*)",
+      "Bash(qx clean:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

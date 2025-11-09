@@ -1,0 +1,27 @@
+# DeskWeb - Development Dockerfile
+# For development with hot-reload
+
+FROM node:18-alpine
+
+# Install dependencies
+RUN apk add --no-cache python3 make g++
+
+# Set working directory
+WORKDIR /app
+
+# Install qooxdoo compiler globally
+RUN npm install -g @qooxdoo/compiler
+
+# Copy package files
+COPY package*.json ./
+COPY Manifest.json ./
+COPY compile.json ./
+
+# Install project dependencies
+RUN npm install || true
+
+# Expose development server port
+EXPOSE 8080
+
+# Default command - compile and serve
+CMD ["sh", "-c", "qx compile && qx serve --listen-port=8080"]

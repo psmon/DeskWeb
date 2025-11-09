@@ -1,0 +1,35 @@
+# Node modules
+node_modules
+npm-debug.log
+
+# Compiled output
+compiled
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+BUILD.md
+*.md
+
+# Docker files
+Dockerfile
+Dockerfile.dev
+docker-compose.yml
+.dockerignore
+
+# Temporary files
+*.log
+*.tmp

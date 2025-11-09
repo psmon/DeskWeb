@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Production build
+  deskweb-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deskweb-prod
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    networks:
+      - deskweb-network
+
+  # Development mode
+  deskweb-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: deskweb-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./source:/app/source:ro
+      - ./compile.json:/app/compile.json:ro
+      - ./Manifest.json:/app/Manifest.json:ro
+    restart: unless-stopped
+    networks:
+      - deskweb-network
+    profiles:
+      - dev
+
+networks:
+  deskweb-network:
+    driver: bridge
