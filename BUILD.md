@@ -102,8 +102,6 @@ docker build -t deskweb:latest . --progress=plain
 #### 1-1 이미지 PUSH
 
 ```
-docker push psmon/webos:tagname
-
 docker tag deskweb:latest psmon/webos:latest
 docker push psmon/webos:latest
 
