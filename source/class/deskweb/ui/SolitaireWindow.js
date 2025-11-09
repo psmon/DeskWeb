@@ -388,7 +388,8 @@ qx.Class.define("deskweb.ui.SolitaireWindow",
             }.call(this, col, row, cardData, card), this);
           }
 
-          this.__tableauContainers[col].add(card, {left: 0, top: row * 25});
+          // Adjust spacing to show previous card's corner (18px shows rank and suit)
+          this.__tableauContainers[col].add(card, {left: 0, top: row * 18});
         }
 
         // Make clickable for dropping cards
@@ -403,41 +404,149 @@ qx.Class.define("deskweb.ui.SolitaireWindow",
      * Create a card widget
      */
     __createCardWidget: function(cardData, cardId, isSelected) {
-      var card = new qx.ui.basic.Atom();
+      // Use Canvas layout for positioning card elements
+      var card = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
       card.set({
         width: 80,
         height: 110,
-        decorator: "main",
-        center: true,
         allowGrowX: false,
         allowGrowY: false,
         cursor: "pointer"
       });
 
       if (cardData.faceUp) {
-        // Show card face
-        var suitSymbol = this.__getSuitSymbol(cardData.suit);
-        var color = cardData.color === "red" ? "red" : "black";
-        card.setLabel(cardData.rank + suitSymbol);
-        card.setTextColor(color);
+        // Show card face with corners
+        var color = cardData.color === "red" ? "#DC143C" : "#000000";
 
-        // Highlight selected card
-        if (isSelected) {
-          card.setBackgroundColor("#FFEB3B"); // Yellow highlight
-        } else {
-          card.setBackgroundColor("white");
-        }
+        // Set appearance for playing card with shadow
+        var bgColor = isSelected ? "#FFEB3B" : "white";
+        card.set({
+          decorator: new qx.ui.decoration.Decorator().set({
+            width: 1,
+            style: "solid",
+            color: "#CCCCCC",
+            radius: 5,
+            backgroundColor: bgColor,
+            shadowLength: 2,
+            shadowBlurRadius: 3,
+            shadowColor: "rgba(0, 0, 0, 0.3)"
+          })
+        });
+
+        // Top-left corner
+        var topLeft = this.__createCardCorner(cardData.rank, cardData.suit, color, false);
+        card.add(topLeft, {left: 2, top: 2});
+
+        // Bottom-right corner (rotated)
+        var bottomRight = this.__createCardCorner(cardData.rank, cardData.suit, color, true);
+        card.add(bottomRight, {right: 2, bottom: 2});
+
+        // Center symbol - display multiple symbols based on rank
+        var centerContainer = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
+        this.__addCenterSymbols(centerContainer, cardData.rank, cardData.suit, color);
+        card.add(centerContainer, {left: 0, right: 0, top: 20, bottom: 20});
+
       } else {
-        // Show card back
-        card.setLabel("🂠");
-        card.setBackgroundColor("#1E5A8E");
+        // Show card back with elegant pattern
+        card.setBackgroundColor("#2C5F9E");
         card.setCursor("default");
+
+        // Add border for card back
+        card.set({
+          decorator: new qx.ui.decoration.Decorator().set({
+            width: 2,
+            style: "solid",
+            color: "#1A3D6B",
+            radius: 5,
+            backgroundColor: "#2C5F9E"
+          })
+        });
+
+        // Create diagonal pattern background
+        var pattern = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
+        pattern.set({
+          backgroundColor: "#2C5F9E"
+        });
+
+        // Add decorative elements to card back
+        var backPattern = new qx.ui.basic.Label("♠♥♣♦");
+        backPattern.set({
+          font: qx.bom.Font.fromString("bold 16px Arial"),
+          textColor: "#4A7FB8",
+          textAlign: "center",
+          rich: true
+        });
+        card.add(backPattern, {left: 0, right: 0, top: 38, bottom: 38});
+
+        // Add corner decorations
+        var corner1 = new qx.ui.basic.Label("♦");
+        corner1.set({
+          font: qx.bom.Font.fromString("10px Arial"),
+          textColor: "#8AB4E5"
+        });
+        card.add(corner1, {left: 5, top: 5});
+
+        var corner2 = new qx.ui.basic.Label("♦");
+        corner2.set({
+          font: qx.bom.Font.fromString("10px Arial"),
+          textColor: "#8AB4E5"
+        });
+        corner2.addListener("appear", function() {
+          var el = corner2.getContentElement().getDomElement();
+          if (el) {
+            el.style.transform = "rotate(180deg)";
+          }
+        });
+        card.add(corner2, {right: 5, bottom: 5});
       }
 
       card.setUserData("cardId", cardId);
       card.setUserData("cardData", cardData);
 
       return card;
+    },
+
+    /**
+     * Create card corner (rank + suit)
+     */
+    __createCardCorner: function(rank, suit, color, rotated) {
+      var container = new qx.ui.container.Composite(new qx.ui.layout.VBox(-4));
+      container.set({
+        allowGrowX: false,
+        allowGrowY: false,
+        padding: 0
+      });
+
+      var rankLabel = new qx.ui.basic.Label(rank);
+      rankLabel.set({
+        font: "card-rank",
+        textColor: color,
+        rich: true,
+        padding: 0
+      });
+
+      var suitLabel = new qx.ui.basic.Label(this.__getSuitSymbol(suit));
+      suitLabel.set({
+        font: qx.bom.Font.fromString("8px Arial"), // 크기를 4px로 줄임 (기존 7px에서 50% 이상 감소)
+        textColor: color,
+        rich: true,
+        padding: 0
+      });
+
+      container.add(rankLabel);
+      container.add(suitLabel);
+
+      // Rotate if needed (bottom-right corner)
+      if (rotated) {
+        container.addListener("appear", function() {
+          var el = container.getContentElement().getDomElement();
+          if (el) {
+            el.style.transform = "rotate(180deg)";
+          }
+        });
+      }
+
+      return container;
     },
 
     /**
@@ -451,6 +560,46 @@ qx.Class.define("deskweb.ui.SolitaireWindow",
         "spades": "♠"
       };
       return symbols[suit] || "";
+    },
+
+    /**
+     * Add center symbols to card based on rank
+     */
+    __addCenterSymbols: function(container, rank, suit, color) {
+      var symbol = this.__getSuitSymbol(suit);
+
+      // Create a centered container
+      var centerWrapper = new qx.ui.container.Composite(new qx.ui.layout.VBox());
+      centerWrapper.set({
+        alignX: "center",
+        alignY: "middle"
+      });
+
+      // For face cards and Ace, show large single symbol
+      if (rank === "A" || rank === "J" || rank === "Q" || rank === "K") {
+        var centerLabel = new qx.ui.basic.Label(symbol);
+        centerLabel.set({
+          font: qx.bom.Font.fromString("bold 32px Arial"),
+          textColor: color,
+          textAlign: "center",
+          alignX: "center",
+          alignY: "middle"
+        });
+        centerWrapper.add(centerLabel);
+      } else {
+        // For number cards, show a simpler center symbol
+        var centerLabel = new qx.ui.basic.Label(symbol);
+        centerLabel.set({
+          font: qx.bom.Font.fromString("28px Arial"),
+          textColor: color,
+          textAlign: "center",
+          alignX: "center",
+          alignY: "middle"
+        });
+        centerWrapper.add(centerLabel);
+      }
+
+      container.add(centerWrapper, {left: 0, right: 0, top: 0, bottom: 0});
     },
 
     /**
@@ -772,21 +921,16 @@ qx.Class.define("deskweb.ui.SolitaireWindow",
      * Create visual drag indicator
      */
     __createDragIndicator: function(widget) {
-      // Create a clone of the card for visual feedback
-      this.__dragIndicator = new qx.ui.basic.Atom();
+      // Get card data and create a clone
+      var cardData = widget.getUserData("cardData");
+      var cardId = widget.getUserData("cardId");
+
+      // Create a clone using the same card creation method
+      this.__dragIndicator = this.__createCardWidget(cardData, cardId + "-drag", false);
       this.__dragIndicator.set({
-        width: 80,
-        height: 110,
-        decorator: "main",
-        center: true,
         opacity: 0.8,
         zIndex: 10000
       });
-
-      // Copy appearance from original widget
-      this.__dragIndicator.setLabel(widget.getLabel());
-      this.__dragIndicator.setTextColor(widget.getTextColor());
-      this.__dragIndicator.setBackgroundColor(widget.getBackgroundColor());
 
       // Add to root with absolute positioning
       var doc = qx.core.Init.getApplication().getRoot();

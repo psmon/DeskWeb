@@ -32,9 +32,13 @@
 - 선택은 되지만 이동이 안되는 문제를 해결해주세요, 더블클릭하거나 단일클릭유지시 카드이동  놓는위치근처일때 유효할때 해당 위치로 카드가 이동하도록 구현해주세요
 - 드래그앤 드랍이 잘작동안됨, 바탕화면의 아이콘 드래그앤 드랍방식을 참고해 개선해주세요
 - 드래그중일때 카드가 마우스따라 움직이는 효과.. 드랍할수 있는 위치에 도달했을때 드랍가능효과... 드랍위치가 아니면 원래위치로 돌아가는 애니효과를 구현
-
 - 카드선택시 다음 오류발생
   SolitaireWindow.js:628 Uncaught TypeError: this.getRoot is not a function
   at wrapper.__createDragIndicator__P_203_52 (SolitaireWindow.js:628:23)
   at wrapper.__onCardDragStart__P_203_46 (SolitaireWindow.js:562:12)
   at wrapper.<anonymous> (SolitaireWindow.js:397:22)
+- 카드디자인을 좀더 실제 카드느낌이 나도록 수정해주세요 
+  - 좌측위 우측아래에 숫자와 문양이 보이도록
+    - 우측 아래는 180도 회전된 상태로 
+  - 카드 뒷면 디자인도 추가
+  - 카드가 겹처도 이전 카드의 숫자와 문양이 살짝보이도록 구현

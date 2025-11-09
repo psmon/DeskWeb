@@ -78,6 +78,41 @@ qx.Theme.define("deskweb.theme.Appearance",
           cursor: "pointer"
         };
       }
+    },
+
+    "playing-card": {
+      style: function(states) {
+        return {
+          decorator: "main",
+          backgroundColor: states.selected ? "#FFEB3B" : "white",
+          width: 80,
+          height: 110,
+          padding: 2,
+          cursor: "pointer"
+        };
+      }
+    },
+
+    "playing-card-back": {
+      style: function(states) {
+        return {
+          decorator: "main",
+          backgroundColor: "#1E5A8E",
+          width: 80,
+          height: 110,
+          cursor: "default"
+        };
+      }
+    },
+
+    "card-corner-text": {
+      style: function(states) {
+        return {
+          font: "card-corner",
+          padding: 0,
+          alignX: "center"
+        };
+      }
     }
   }
 });
