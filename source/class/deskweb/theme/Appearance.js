@@ -113,6 +113,26 @@ qx.Theme.define("deskweb.theme.Appearance",
           alignX: "center"
         };
       }
+    },
+
+    "window-captionbar": {
+      style: function(states) {
+        return {
+          decorator: states.active ? "window-caption-active" : "window-caption-inactive",
+          textColor: "white",
+          padding: [2, 4],
+          height: 28
+        };
+      }
+    },
+
+    "window/title": {
+      style: function(states) {
+        return {
+          textColor: "white",
+          font: "bold"
+        };
+      }
     }
   }
 });

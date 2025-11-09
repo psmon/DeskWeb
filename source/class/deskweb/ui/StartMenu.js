@@ -28,25 +28,35 @@ qx.Class.define("deskweb.ui.StartMenu", {
     });
 
     // Create sidebar with Windows logo area
-    var sidebar = new qx.ui.container.Composite(new qx.ui.layout.VBox());
+    var sidebar = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
     sidebar.set({
       decorator: "startmenu-sidebar",
       width: 40,
       padding: 0
     });
 
-    var sidebarLabel = new qx.ui.basic.Label("Windows XP");
+    var sidebarLabel = new qx.ui.basic.Label("Windows XP WebOS");
     sidebarLabel.set({
       textColor: "white",
       font: "bold",
-      padding: 10,
       rich: true
     });
-    sidebarLabel.setLayoutProperties({flex: 1});
 
-    // Rotate text vertically (simulated with padding and layout)
-    sidebar.add(new qx.ui.core.Spacer(), {flex: 1});
-    sidebar.add(sidebarLabel);
+    // Rotate text -90 degrees (vertical, bottom to top)
+    sidebarLabel.addListener("appear", function() {
+      var el = sidebarLabel.getContentElement().getDomElement();
+      if (el) {
+        el.style.transform = "rotate(-90deg)";
+        el.style.transformOrigin = "left bottom";
+        el.style.whiteSpace = "nowrap";
+        el.style.position = "absolute";
+        el.style.bottom = "16px";
+        el.style.left = "35px";
+      }
+    });
+
+    // Position in the sidebar
+    sidebar.add(sidebarLabel, {left: 0, bottom: 0});
 
     this.add(sidebar);
 

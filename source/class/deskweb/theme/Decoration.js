@@ -57,6 +57,22 @@ qx.Theme.define("deskweb.theme.Decoration",
       }
     },
 
+    "window-caption-active": {
+      style: {
+        gradientStart: ["#0058E6", 0],
+        gradientEnd: ["#3E8EFF", 100],
+        orientation: "horizontal"
+      }
+    },
+
+    "window-caption-inactive": {
+      style: {
+        gradientStart: ["#7A96C4", 0],
+        gradientEnd: ["#A4B8D8", 100],
+        orientation: "horizontal"
+      }
+    },
+
     "desktop-icon": {
       style: {
         radius: 3
