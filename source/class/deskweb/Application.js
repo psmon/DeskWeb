@@ -180,6 +180,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openCanvasDemoWindow();
           }
+        },
+        {
+          id: "minesweeper",
+          label: "Minesweeper",
+          icon: "deskweb/images/minesweeper.svg",
+          defaultLeft: 20,
+          defaultTop: 720,
+          action: function() {
+            this._openMinesweeperWindow();
+          }
         }
       ];
 
@@ -271,6 +281,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "canvas-demo":
           this._openCanvasDemoWindow();
+          break;
+        case "minesweeper":
+          this._openMinesweeperWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -395,6 +408,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened Canvas Demo");
+    },
+
+    /**
+     * Open Minesweeper window
+     */
+    _openMinesweeperWindow: function() {
+      var win = new deskweb.ui.MinesweeperWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Minesweeper game");
     },
 
     /**
