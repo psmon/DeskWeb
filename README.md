@@ -2,6 +2,8 @@
 
 qooxdoo 프레임워크를 사용하여 구현한 Windows XP 스타일의 웹 데스크톱 애플리케이션입니다.
 
+DEMO : https://webos.webnori.com/
+
 ## 📸 주요 기능
 
 ### 🖥️ 데스크톱 환경
