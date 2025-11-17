@@ -138,7 +138,7 @@ qx.Class.define("deskweb.Application",
           defaultLeft: 20,
           defaultTop: 220,
           action: function() {
-            this._openWindow("Recycle Bin", "Recycle Bin is empty.");
+            this._openRecycleBinWindow();
           }
         },
         {
@@ -302,6 +302,19 @@ qx.Class.define("deskweb.Application",
 
       // Listen for file open events from My Computer
       win.addListener("openFile", this._onFileOpenRequest, this);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+    },
+
+    /**
+     * Open Recycle Bin window
+     */
+    _openRecycleBinWindow: function() {
+      var win = new deskweb.ui.RecycleBinWindow();
 
       this.__desktop.add(win);
       this.__taskbar.attachWindow(win);
