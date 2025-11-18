@@ -90,6 +90,14 @@ qx.Class.define("deskweb.util.WebLLMManager",
     getAvailableModels: function() {
       return [
         {
+          id: "openai/gpt-oss-20b",
+          name: "openai/gpt-oss-20b",
+          description: "Cloud API model, no download required",
+          size: "API",
+          context: "8k tokens",
+          isAPI: true
+        },
+        {
           id: "gemma-2b-it-q4f16_1-MLC",
           name: "Gemma 2B",
           description: "Lightweight model, 1.5GB, best for simple tasks",
@@ -154,6 +162,16 @@ qx.Class.define("deskweb.util.WebLLMManager",
       console.log("[WebLLMManager] Starting model load:", modelId);
 
       try {
+        // Check if this is an API model
+        const models = this.getAvailableModels();
+        const modelConfig = models.find(m => m.id === modelId);
+
+        if (modelConfig && modelConfig.isAPI) {
+          console.log("[WebLLMManager] Loading API model...");
+          await this.__loadAPIModel(modelId);
+          return;
+        }
+
         // Try WebGPU-accelerated WebLLM first
         const webGPUSupported = await this.checkWebGPUSupport();
 
@@ -262,6 +280,28 @@ qx.Class.define("deskweb.util.WebLLMManager",
     },
 
     /**
+     * Load API model (no actual loading needed)
+     * @param {string} modelId - The model ID
+     * @return {Promise<void>}
+     */
+    __loadAPIModel: async function(modelId) {
+      console.log("[WebLLMManager] Setting up API model:", modelId);
+
+      // Simulate a brief loading time for UX consistency
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      this.__engine = "api"; // Mark as API mode
+      this.__engineType = "api";
+      this.__isLoading = false;
+
+      console.log("[WebLLMManager] API model ready");
+      this.fireDataEvent("modelLoaded", {
+        model: modelId,
+        engineType: "api"
+      });
+    },
+
+    /**
      * Generate a chat response
      * @param {string} message - User message
      * @param {Array} history - Chat history (optional)
@@ -275,7 +315,9 @@ qx.Class.define("deskweb.util.WebLLMManager",
       console.log("[WebLLMManager] Generating chat response for:", message);
 
       try {
-        if (this.__engineType === "webllm") {
+        if (this.__engineType === "api") {
+          return await this.__chatWithAPI(message, history);
+        } else if (this.__engineType === "webllm") {
           return await this.__chatWithWebLLM(message, history);
         } else if (this.__engineType === "picollm") {
           return await this.__chatWithPicoLLM(message, history);
@@ -284,6 +326,117 @@ qx.Class.define("deskweb.util.WebLLMManager",
         }
       } catch (error) {
         console.error("[WebLLMManager] Chat generation failed:", error);
+        throw error;
+      }
+    },
+
+    /**
+     * Chat using API
+     * @param {string} message - User message
+     * @param {Array} history - Chat history
+     * @return {Promise<string>} Generated response
+     */
+    __chatWithAPI: async function(message, history) {
+      console.log("[WebLLMManager] Calling API with message:", message);
+
+      // Build messages array
+      const messages = [
+        { role: "system", content: "You are a helpful assistant. Respond in Markdown format." }
+      ];
+
+      // Add history
+      if (history && history.length > 0) {
+        history.forEach(msg => {
+          messages.push({ role: msg.role, content: msg.content });
+        });
+      }
+
+      // Add current message (if not already in history)
+      if (!history || history.length === 0 || history[history.length - 1].content !== message) {
+        messages.push({ role: "user", content: message });
+      }
+
+      const apiUrl = "https://mcp.webnori.com/api/llm/chat/completions";
+      const payload = {
+        model: this.__currentModel,
+        messages: messages,
+        max_tokens: 5000,
+        temperature: 0.7,
+        stream: true
+      };
+
+      console.log("[WebLLMManager] API request payload:", payload);
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "accept": "text/plain",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        }
+
+        // Handle streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log("[WebLLMManager] API stream complete");
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.trim() === '' || line.trim() === 'data: [DONE]') {
+              continue;
+            }
+
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.substring(6); // Remove 'data: ' prefix
+                const data = JSON.parse(jsonStr);
+
+                if (data.choices && data.choices[0] && data.choices[0].delta) {
+                  const content = data.choices[0].delta.content;
+                  if (content) {
+                    fullResponse += content;
+                    // Fire streaming event
+                    this.fireDataEvent("chatResponse", {
+                      text: fullResponse,
+                      isDone: false
+                    });
+                    console.log("[WebLLMManager] API chunk received, total length:", fullResponse.length);
+                  }
+                }
+              } catch (parseError) {
+                console.warn("[WebLLMManager] Failed to parse SSE data:", line, parseError);
+              }
+            }
+          }
+        }
+
+        // Fire completion event
+        this.fireDataEvent("chatResponse", {
+          text: fullResponse,
+          isDone: true
+        });
+
+        console.log("[WebLLMManager] API response complete, total length:", fullResponse.length);
+        return fullResponse;
+
+      } catch (error) {
+        console.error("[WebLLMManager] API chat error:", error);
         throw error;
       }
     },

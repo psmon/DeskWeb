@@ -34,12 +34,134 @@
       -webkit-touch-callout: none !important;
       overflow: hidden;
     }
+
+    /* Markdown rendering styles - for both Label and Html widgets */
+    .qx-label h1, .qx-label h2, .qx-label h3, .qx-label h4, .qx-label h5, .qx-label h6,
+    .qx-html h1, .qx-html h2, .qx-html h3, .qx-html h4, .qx-html h5, .qx-html h6 {
+      margin-top: 0.5em;
+      margin-bottom: 0.5em;
+      font-weight: bold;
+    }
+
+    .qx-label h1, .qx-html h1 { font-size: 1.5em; }
+    .qx-label h2, .qx-html h2 { font-size: 1.3em; }
+    .qx-label h3, .qx-html h3 { font-size: 1.1em; }
+    .qx-label h4, .qx-label h5, .qx-label h6,
+    .qx-html h4, .qx-html h5, .qx-html h6 { font-size: 1em; }
+
+    .qx-label p, .qx-html p {
+      margin: 0.5em 0;
+    }
+
+    .qx-label pre, .qx-html pre {
+      background-color: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 8px 12px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+
+    .qx-label code, .qx-html code {
+      background-color: #f6f8fa;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .qx-label pre code, .qx-html pre code {
+      background-color: transparent;
+      border: none;
+      padding: 0;
+    }
+
+    .qx-label ul, .qx-label ol,
+    .qx-html ul, .qx-html ol {
+      margin: 0.5em 0;
+      padding-left: 2em;
+    }
+
+    .qx-label li, .qx-html li {
+      margin: 0.2em 0;
+    }
+
+    .qx-label blockquote, .qx-html blockquote {
+      border-left: 4px solid #d0d7de;
+      padding-left: 1em;
+      margin: 0.5em 0;
+      color: #57606a;
+    }
+
+    .qx-label table, .qx-html table {
+      border-collapse: collapse;
+      margin: 0.5em 0;
+      width: 100%;
+    }
+
+    .qx-label th, .qx-label td,
+    .qx-html th, .qx-html td {
+      border: 1px solid #d0d7de;
+      padding: 6px 13px;
+    }
+
+    .qx-label th, .qx-html th {
+      background-color: #f6f8fa;
+      font-weight: bold;
+    }
+
+    .qx-label a, .qx-html a {
+      color: #0969da;
+      text-decoration: none;
+    }
+
+    .qx-label a:hover, .qx-html a:hover {
+      text-decoration: underline;
+    }
+
+    .qx-label hr, .qx-html hr {
+      border: none;
+      border-top: 1px solid #d0d7de;
+      margin: 1em 0;
+    }
+
+    /* Mermaid diagram styles */
+    .qx-label .mermaid, .qx-html .mermaid {
+      background-color: white;
+      padding: 10px;
+      border-radius: 6px;
+      margin: 0.5em 0;
+      text-align: center;
+    }
+
+    /* Enable text selection in HTML widgets */
+    .qx-html {
+      user-select: text;
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+    }
   </style>
 
   <title>deskweb</title>
   <noscript>
     <meta http-equiv="refresh" content="0; url=nojs.html"/>
   </noscript>
+
+  <!-- Markdown rendering libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/lib/marked.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+  <script>
+    // Initialize Mermaid
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose'
+      });
+    }
+  </script>
+
   ${preBootJs}
   <script type="text/javascript" src="${appPath}index.js"></script>
 

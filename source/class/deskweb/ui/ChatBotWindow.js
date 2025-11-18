@@ -443,8 +443,33 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       if (!data.isDone && data.text) {
         this.__currentStreamingText = data.text;
 
-        // Update the label with current text
-        this.__streamingMessageLabel.setValue(this._escapeHtml(data.text));
+        // Render markdown and update the widget
+        const renderedHtml = this._renderMarkdown(data.text);
+
+        // Use setHtml for qx.ui.embed.Html widget
+        if (this.__streamingMessageLabel.setHtml) {
+          this.__streamingMessageLabel.setHtml(renderedHtml);
+        } else {
+          this.__streamingMessageLabel.setValue(renderedHtml);
+        }
+
+        // Force the widget to recalculate its size
+        const element = this.__streamingMessageLabel.getContentElement();
+        if (element) {
+          const domElement = element.getDomElement();
+          if (domElement) {
+            // Reset height to allow content to expand
+            domElement.style.height = "auto";
+
+            // Get the actual content height
+            const contentHeight = domElement.scrollHeight;
+
+            // Apply the calculated height
+            if (contentHeight > 0) {
+              this.__streamingMessageLabel.setHeight(contentHeight);
+            }
+          }
+        }
 
         // Force layout update and scroll to bottom
         this.__chatArea.invalidateLayoutCache();
@@ -475,6 +500,14 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
     _addAssistantMessage: function(message) {
       const messageContainer = this._createMessageBubble(message, "assistant");
       this.__chatArea.add(messageContainer);
+
+      // Render mermaid diagrams if present
+      const widget = messageContainer.getChildren()[0]; // Get the widget from container
+      if (widget) {
+        qx.event.Timer.once(function() {
+          this._renderMermaidDiagrams(widget);
+        }, this, 200);
+      }
 
       // Force layout update before scrolling
       this.__chatArea.invalidateLayoutCache();
@@ -510,25 +543,59 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       const container = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
       container.setPadding(5);
 
-      const label = new qx.ui.basic.Label(message);
-      label.set({
-        rich: true,
-        wrap: true,
-        maxWidth: 400,
+      // Render markdown for assistant messages, escape HTML for user messages
+      const displayText = role === "assistant" ? this._renderMarkdown(message) : this._escapeHtml(message);
+
+      // Use Html widget instead of Label for better HTML rendering and text selection
+      const htmlWidget = new qx.ui.embed.Html(displayText);
+      htmlWidget.set({
+        // Use minWidth instead of fixed width, allow it to grow
+        minWidth: 200,
         padding: 10,
         backgroundColor: role === "user" ? "#E3F2FD" : "#F5F5F5",
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 10,
           backgroundColor: role === "user" ? "#E3F2FD" : "#F5F5F5"
-        })
+        }),
+        // Enable text selection
+        selectable: true,
+        // Allow content to grow in both directions
+        allowGrowX: true,
+        allowGrowY: true,
+        allowShrinkY: false
+      });
+
+      // Add custom CSS for text selection and overflow
+      htmlWidget.addListenerOnce("appear", function() {
+        const element = htmlWidget.getContentElement();
+        if (element) {
+          const domElement = element.getDomElement();
+          if (domElement) {
+            domElement.style.userSelect = "text";
+            domElement.style.webkitUserSelect = "text";
+            domElement.style.cursor = "text";
+            domElement.style.wordWrap = "break-word";
+            domElement.style.overflowWrap = "break-word";
+            domElement.style.overflow = "auto";
+            domElement.style.minHeight = "20px";
+            domElement.style.width = "100%";
+            domElement.style.maxWidth = "none";
+
+            // Calculate and set initial height
+            const contentHeight = domElement.scrollHeight;
+            if (contentHeight > 0) {
+              htmlWidget.setHeight(contentHeight);
+            }
+          }
+        }
       });
 
       if (role === "user") {
         container.add(new qx.ui.core.Spacer(), {flex: 1});
-        container.add(label);
+        container.add(htmlWidget, {flex: 0});
       } else {
-        container.add(label);
-        container.add(new qx.ui.core.Spacer(), {flex: 1});
+        container.add(htmlWidget, {flex: 1});
+        container.add(new qx.ui.core.Spacer(), {flex: 0});
       }
 
       return container;
@@ -542,6 +609,9 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       const scrollToEnd = function() {
         const scrollContainer = this.__chatArea.getLayoutParent();
         if (scrollContainer instanceof qx.ui.container.Scroll) {
+          // Force layout recalculation first
+          scrollContainer.invalidateLayoutCache();
+
           const scrollPane = scrollContainer.getChildControl("pane");
           if (scrollPane) {
             // Get the actual content height
@@ -549,8 +619,17 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
             if (contentElement) {
               const domElement = contentElement.getDomElement();
               if (domElement) {
-                // Scroll to the very bottom
-                scrollContainer.scrollToY(domElement.scrollHeight + 1000);
+                // Calculate the maximum scroll position
+                const maxScrollY = Math.max(
+                  domElement.scrollHeight,
+                  domElement.offsetHeight,
+                  this.__chatArea.getBounds()?.height || 0
+                );
+
+                // Scroll to the very bottom with extra padding
+                scrollContainer.scrollToY(maxScrollY + 2000);
+
+                console.log("[ChatBotWindow] Scrolled to bottom, height:", maxScrollY);
               }
             }
           }
@@ -560,10 +639,12 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       // Scroll immediately
       scrollToEnd();
 
-      // Scroll again after layout is complete
+      // Scroll again after layout is complete with multiple timings
+      qx.event.Timer.once(scrollToEnd, this, 10);
       qx.event.Timer.once(scrollToEnd, this, 50);
-      qx.event.Timer.once(scrollToEnd, this, 150);
-      qx.event.Timer.once(scrollToEnd, this, 300);
+      qx.event.Timer.once(scrollToEnd, this, 100);
+      qx.event.Timer.once(scrollToEnd, this, 200);
+      qx.event.Timer.once(scrollToEnd, this, 400);
     },
 
     /**
@@ -661,25 +742,48 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       const container = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
       container.setPadding(5);
 
-      // Create label for streaming text
-      const label = new qx.ui.basic.Label("");
-      label.set({
-        rich: true,
-        wrap: true,
-        maxWidth: 400,
+      // Create Html widget for streaming text (instead of Label)
+      const htmlWidget = new qx.ui.embed.Html("");
+      htmlWidget.set({
+        // Use minWidth instead of fixed width, allow it to grow
+        minWidth: 200,
         padding: 10,
         backgroundColor: "#F5F5F5",
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 10,
           backgroundColor: "#F5F5F5"
-        })
+        }),
+        selectable: true,
+        // Allow content to grow in both directions
+        allowGrowX: true,
+        allowGrowY: true,
+        allowShrinkY: false
       });
 
-      container.add(label);
-      container.add(new qx.ui.core.Spacer(), {flex: 1});
+      // Enable text selection and proper overflow when element appears
+      htmlWidget.addListenerOnce("appear", function() {
+        const element = htmlWidget.getContentElement();
+        if (element) {
+          const domElement = element.getDomElement();
+          if (domElement) {
+            domElement.style.userSelect = "text";
+            domElement.style.webkitUserSelect = "text";
+            domElement.style.cursor = "text";
+            domElement.style.wordWrap = "break-word";
+            domElement.style.overflowWrap = "break-word";
+            domElement.style.overflow = "auto";
+            domElement.style.minHeight = "20px";
+            domElement.style.width = "100%";
+            domElement.style.maxWidth = "none";
+          }
+        }
+      });
+
+      container.add(htmlWidget, {flex: 1});
+      container.add(new qx.ui.core.Spacer(), {flex: 0});
 
       this.__streamingMessageContainer = container;
-      this.__streamingMessageLabel = label;
+      this.__streamingMessageLabel = htmlWidget;
 
       // Add to chat area
       this.__chatArea.add(container);
@@ -697,8 +801,44 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
      */
     _finalizeStreamingMessage: function(finalText) {
       if (this.__streamingMessageLabel && finalText) {
-        // Update with final text
-        this.__streamingMessageLabel.setValue(this._escapeHtml(finalText));
+        // Render markdown and update with final text
+        const renderedHtml = this._renderMarkdown(finalText);
+
+        // Use setHtml for qx.ui.embed.Html widget
+        if (this.__streamingMessageLabel.setHtml) {
+          this.__streamingMessageLabel.setHtml(renderedHtml);
+        } else {
+          this.__streamingMessageLabel.setValue(renderedHtml);
+        }
+
+        // Force the widget to recalculate its final size
+        const element = this.__streamingMessageLabel.getContentElement();
+        if (element) {
+          const domElement = element.getDomElement();
+          if (domElement) {
+            // Reset height to allow content to expand
+            domElement.style.height = "auto";
+
+            // Get the actual content height
+            const contentHeight = domElement.scrollHeight;
+
+            // Apply the calculated height
+            if (contentHeight > 0) {
+              this.__streamingMessageLabel.setHeight(contentHeight);
+            }
+          }
+        }
+
+        // Store reference for mermaid rendering
+        const widget = this.__streamingMessageLabel;
+
+        // Render mermaid diagrams if present (with delay to ensure DOM is ready)
+        qx.event.Timer.once(function() {
+          this._renderMermaidDiagrams(widget);
+
+          // Scroll again after mermaid rendering
+          this._scrollToBottom();
+        }, this, 500);
 
         // Force final layout update and scroll
         this.__chatArea.invalidateLayoutCache();
@@ -727,6 +867,112 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;")
         .replace(/\n/g, "<br/>");
+    },
+
+    /**
+     * Render markdown text to HTML
+     */
+    _renderMarkdown: function(text) {
+      if (!text) return "";
+
+      try {
+        // Check if marked library is available
+        if (typeof marked === 'undefined') {
+          console.warn("[ChatBotWindow] marked.js not loaded, falling back to plain text");
+          return this._escapeHtml(text);
+        }
+
+        // Configure marked options
+        marked.setOptions({
+          breaks: true,
+          gfm: true,
+          headerIds: true,
+          mangle: false,
+          sanitize: false
+        });
+
+        // Convert markdown to HTML
+        let html = marked.parse(text);
+
+        // Process mermaid diagrams if available
+        if (typeof mermaid !== 'undefined') {
+          // Find mermaid code blocks and render them
+          html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, function(match, code) {
+            const uniqueId = 'mermaid-' + Math.random().toString(36).substr(2, 9);
+            // Decode HTML entities in the code
+            const decodedCode = code
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#039;/g, "'")
+              .replace(/&amp;/g, '&');
+
+            return '<div class="mermaid" id="' + uniqueId + '">' + decodedCode + '</div>';
+          });
+        }
+
+        return html;
+      } catch (error) {
+        console.error("[ChatBotWindow] Markdown rendering error:", error);
+        return this._escapeHtml(text);
+      }
+    },
+
+    /**
+     * Render mermaid diagrams in a widget
+     */
+    _renderMermaidDiagrams: function(widget) {
+      if (typeof mermaid === 'undefined') {
+        console.warn("[ChatBotWindow] Mermaid not available");
+        return;
+      }
+
+      try {
+        // Get the DOM element from the widget
+        const contentElement = widget.getContentElement();
+        if (!contentElement) {
+          console.warn("[ChatBotWindow] No content element for mermaid rendering");
+          return;
+        }
+
+        const domElement = contentElement.getDomElement();
+        if (!domElement) {
+          console.warn("[ChatBotWindow] No DOM element for mermaid rendering");
+          return;
+        }
+
+        // Find all mermaid elements
+        const mermaidElements = domElement.querySelectorAll('.mermaid');
+
+        if (mermaidElements.length === 0) {
+          console.log("[ChatBotWindow] No mermaid diagrams found");
+          return;
+        }
+
+        console.log("[ChatBotWindow] Found " + mermaidElements.length + " mermaid diagram(s)");
+
+        mermaidElements.forEach(function(element, index) {
+          if (!element.hasAttribute('data-processed')) {
+            console.log("[ChatBotWindow] Rendering mermaid diagram #" + index);
+
+            // Render the mermaid diagram
+            mermaid.run({
+              nodes: [element]
+            }).then(function() {
+              element.setAttribute('data-processed', 'true');
+              console.log("[ChatBotWindow] Mermaid diagram #" + index + " rendered successfully");
+            }).catch(function(error) {
+              console.error("[ChatBotWindow] Mermaid rendering error for diagram #" + index + ":", error);
+              element.innerHTML = "<div style='color: red; padding: 10px; border: 1px solid red;'>Error rendering diagram: " + error.message + "</div>";
+              element.setAttribute('data-processed', 'error');
+            });
+          } else {
+            console.log("[ChatBotWindow] Mermaid diagram #" + index + " already processed");
+          }
+        });
+      } catch (error) {
+        console.error("[ChatBotWindow] Mermaid rendering error:", error);
+      }
     },
 
     /**
