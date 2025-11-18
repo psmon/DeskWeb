@@ -75,6 +75,7 @@ qx.Class.define("deskweb.ui.StartMenu", {
     this._addMenuItem("Solitaire", "games-card", "solitaire");
     this._addMenuItem("Minesweeper", "minesweeper", "minesweeper");
     this._addMenuItem("AI ChatBot", "ai-chatbot", "chatbot");
+    this._addMenuItem("ASK BOT", "askbot", "askbot");
     this._addMenuItem("Canvas Demo", "canvas-demo", "canvas-demo");
     this._addSeparator();
     this._addMenuItem("Control Panel", "preferences-system", "controlpanel");

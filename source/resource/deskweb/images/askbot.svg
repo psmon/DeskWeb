@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#4A90E2" opacity="0.9"/>
+
+  <!-- Question mark symbol -->
+  <text x="32" y="45" font-family="Arial, sans-serif" font-size="40" font-weight="bold" fill="white" text-anchor="middle">?</text>
+
+  <!-- Small chat bubble -->
+  <path d="M 45 15 L 55 15 L 55 25 L 50 25 L 48 28 L 48 25 L 45 25 Z" fill="white" opacity="0.8"/>
+
+  <!-- Border -->
+  <circle cx="32" cy="32" r="30" fill="none" stroke="#2E5C8A" stroke-width="2"/>
+</svg>

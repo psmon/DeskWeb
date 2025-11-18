@@ -33,6 +33,8 @@ qx.Class.define("deskweb.Application",
     __storage: null,
     __registry: null,
     __iconPositionManager: null,
+    __customApps: null,
+    __desktopContextMenu: null,
 
     /**
      * This method contains the initial application code and gets called
@@ -67,6 +69,10 @@ qx.Class.define("deskweb.Application",
       this.__registry = deskweb.util.FileExtensionRegistry.getInstance();
       this.__iconPositionManager = deskweb.util.IconPositionManager.getInstance();
 
+      // Initialize custom apps array
+      this.__customApps = [];
+      this._loadCustomApps();
+
       console.log("[Application] Storage, registry, and icon position manager initialized");
 
       var doc = this.getRoot();
@@ -96,6 +102,9 @@ qx.Class.define("deskweb.Application",
 
       // Create desktop icons
       this._createDesktopIcons();
+
+      // Setup desktop context menu for adding apps
+      this._setupDesktopContextMenu();
 
       console.log("[Application] DeskWeb started successfully");
     },
@@ -189,6 +198,16 @@ qx.Class.define("deskweb.Application",
           defaultTop: 720,
           action: function() {
             this._openMinesweeperWindow();
+          }
+        },
+        {
+          id: "askbot",
+          label: "ASK BOT",
+          icon: "deskweb/images/askbot.svg",
+          defaultLeft: 20,
+          defaultTop: 820,
+          action: function() {
+            this._openAskBotWindow();
           }
         }
       ];
@@ -284,6 +303,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "minesweeper":
           this._openMinesweeperWindow();
+          break;
+        case "askbot":
+          this._openAskBotWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -439,6 +461,21 @@ qx.Class.define("deskweb.Application",
     },
 
     /**
+     * Open AskBot window
+     */
+    _openAskBotWindow: function() {
+      var win = new deskweb.ui.AskBotWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened ASK BOT");
+    },
+
+    /**
      * Open a generic window
      */
     _openWindow: function(title, content) {
@@ -461,6 +498,261 @@ qx.Class.define("deskweb.Application",
 
       win.center();
       win.open();
+    },
+
+    /**
+     * Setup desktop context menu for adding custom apps
+     */
+    _setupDesktopContextMenu: function() {
+      // Create context menu
+      this.__desktopContextMenu = new qx.ui.menu.Menu();
+
+      // Add "Add App" button
+      var addAppButton = new qx.ui.menu.Button("Add App...");
+      addAppButton.addListener("execute", this._onAddAppClick, this);
+      this.__desktopContextMenu.add(addAppButton);
+
+      // Attach context menu to desktop
+      this.__desktop.setContextMenu(this.__desktopContextMenu);
+
+      console.log("[Application] Desktop context menu setup");
+    },
+
+    /**
+     * Handle Add App button click
+     */
+    _onAddAppClick: function() {
+      // Create dialog window
+      var dialog = new qx.ui.window.Window("Add Custom App");
+      dialog.setLayout(new qx.ui.layout.VBox(10));
+      dialog.set({
+        width: 400,
+        height: 200,
+        modal: true,
+        showMinimize: false,
+        showMaximize: false,
+        showClose: true,
+        contentPadding: 20
+      });
+
+      // App name input
+      var nameContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
+      nameContainer.add(new qx.ui.basic.Label("App Name:").set({width: 80, alignY: "middle"}));
+      var nameInput = new qx.ui.form.TextField();
+      nameInput.setPlaceholder("e.g., ASK BOT");
+      nameContainer.add(nameInput, {flex: 1});
+      dialog.add(nameContainer);
+
+      // URL input
+      var urlContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
+      urlContainer.add(new qx.ui.basic.Label("URL:").set({width: 80, alignY: "middle"}));
+      var urlInput = new qx.ui.form.TextField();
+      urlInput.setPlaceholder("e.g., https://example.com");
+      urlContainer.add(urlInput, {flex: 1});
+      dialog.add(urlContainer);
+
+      // Buttons
+      var buttonContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(10, "right"));
+
+      var cancelButton = new qx.ui.form.Button("Cancel");
+      cancelButton.addListener("execute", function() {
+        dialog.close();
+      });
+      buttonContainer.add(cancelButton);
+
+      var addButton = new qx.ui.form.Button("Add");
+      addButton.addListener("execute", function() {
+        var appName = nameInput.getValue();
+        var appUrl = urlInput.getValue();
+
+        if (!appName || !appUrl) {
+          alert("Please enter both app name and URL.");
+          return;
+        }
+
+        // Validate URL
+        if (!appUrl.startsWith("http://") && !appUrl.startsWith("https://")) {
+          alert("URL must start with http:// or https://");
+          return;
+        }
+
+        // Add custom app
+        this._addCustomApp(appName, appUrl);
+        dialog.close();
+      }, this);
+      buttonContainer.add(addButton);
+
+      dialog.add(buttonContainer);
+
+      // Show dialog
+      this.__desktop.add(dialog);
+      dialog.center();
+      dialog.open();
+
+      console.log("[Application] Add App dialog opened");
+    },
+
+    /**
+     * Add a custom app to the desktop
+     */
+    _addCustomApp: function(appName, appUrl) {
+      // Generate unique ID
+      var appId = "custom-app-" + Date.now();
+
+      // Find next available position
+      var topPosition = 220; // Start after built-in apps
+      this.__customApps.forEach(function(app) {
+        if (app.defaultTop >= topPosition) {
+          topPosition = app.defaultTop + 100;
+        }
+      });
+
+      // Create app definition
+      var appDef = {
+        id: appId,
+        label: appName,
+        icon: "deskweb/images/askbot.svg", // Default icon for now
+        url: appUrl,
+        defaultLeft: 20,
+        defaultTop: topPosition,
+        isCustom: true
+      };
+
+      // Add to custom apps array
+      this.__customApps.push(appDef);
+
+      // Save to localStorage
+      this._saveCustomApps();
+
+      // Create icon on desktop
+      this._createCustomAppIcon(appDef);
+
+      console.log("[Application] Added custom app:", appName, appUrl);
+    },
+
+    /**
+     * Create icon for custom app
+     */
+    _createCustomAppIcon: function(appDef) {
+      // Create icon with unique ID
+      var icon = new deskweb.ui.DesktopIcon(appDef.label, appDef.icon, appDef.id);
+
+      // Check if there's a saved position
+      var savedPosition = this.__iconPositionManager.getIconPosition(appDef.id);
+      var left = savedPosition ? savedPosition.left : appDef.defaultLeft;
+      var top = savedPosition ? savedPosition.top : appDef.defaultTop;
+
+      // Set position
+      icon.setLayoutProperties({left: left, top: top});
+
+      // Add action listener to open custom app
+      icon.addListener("open", function() {
+        this._openCustomApp(appDef);
+      }, this);
+
+      // Add context menu for custom apps (delete option)
+      if (appDef.isCustom) {
+        var contextMenu = new qx.ui.menu.Menu();
+        var deleteButton = new qx.ui.menu.Button("Delete App");
+        deleteButton.addListener("execute", function() {
+          this._deleteCustomApp(appDef.id);
+        }, this);
+        contextMenu.add(deleteButton);
+        icon.setContextMenu(contextMenu);
+      }
+
+      // Add to desktop
+      this.__desktop.add(icon);
+
+      console.log("[Application] Created custom app icon:", appDef.id, "at position", left, top);
+
+      return icon;
+    },
+
+    /**
+     * Open custom app window
+     */
+    _openCustomApp: function(appDef) {
+      var win = new deskweb.ui.AskBotWindow(appDef.url, appDef.label, appDef.icon);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened custom app:", appDef.label);
+    },
+
+    /**
+     * Delete custom app
+     */
+    _deleteCustomApp: function(appId) {
+      if (!confirm("Are you sure you want to delete this app?")) {
+        return;
+      }
+
+      // Remove from custom apps array
+      this.__customApps = this.__customApps.filter(function(app) {
+        return app.id !== appId;
+      });
+
+      // Save to localStorage
+      this._saveCustomApps();
+
+      // Find and remove icon from desktop
+      var children = this.__desktop.getChildren();
+      for (var i = 0; i < children.length; i++) {
+        var child = children[i];
+        if (child instanceof deskweb.ui.DesktopIcon) {
+          if (child.getUserData("iconId") === appId) {
+            this.__desktop.remove(child);
+            child.dispose();
+            break;
+          }
+        }
+      }
+
+      // Remove saved position
+      this.__iconPositionManager.clearIconPosition(appId);
+
+      console.log("[Application] Deleted custom app:", appId);
+    },
+
+    /**
+     * Load custom apps from localStorage
+     */
+    _loadCustomApps: function() {
+      try {
+        var stored = localStorage.getItem("deskweb.customApps");
+        if (stored) {
+          this.__customApps = JSON.parse(stored);
+          console.log("[Application] Loaded custom apps:", this.__customApps.length);
+
+          // Create icons for custom apps
+          this.__customApps.forEach(function(appDef) {
+            // Defer creation until after desktop is ready
+            qx.event.Timer.once(function() {
+              this._createCustomAppIcon(appDef);
+            }, this, 100);
+          }, this);
+        }
+      } catch (error) {
+        console.error("[Application] Failed to load custom apps:", error);
+        this.__customApps = [];
+      }
+    },
+
+    /**
+     * Save custom apps to localStorage
+     */
+    _saveCustomApps: function() {
+      try {
+        localStorage.setItem("deskweb.customApps", JSON.stringify(this.__customApps));
+        console.log("[Application] Saved custom apps");
+      } catch (error) {
+        console.error("[Application] Failed to save custom apps:", error);
+      }
     }
   }
 });
