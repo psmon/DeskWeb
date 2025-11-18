@@ -4,6 +4,11 @@
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
 
+  <!-- Cache control - force reload on new deployment -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
   <!-- Setup the viewport for mobile and desktop environments -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimum-scale=1.0, maximum-scale=1.0" />
 
@@ -163,7 +168,62 @@
   </script>
 
   ${preBootJs}
-  <script type="text/javascript" src="${appPath}index.js"></script>
+
+  <!-- Service Worker Registration for cache management -->
+  <script>
+    // Register Service Worker for cache busting
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('${resourcePath}deskweb/sw.js?v=' + Date.now())
+          .then(function(registration) {
+            console.log('[App] ServiceWorker registered:', registration.scope);
+
+            // Check for updates every 60 seconds
+            setInterval(function() {
+              registration.update();
+            }, 60000);
+
+            // Listen for updates
+            registration.addEventListener('updatefound', function() {
+              const newWorker = registration.installing;
+              console.log('[App] ServiceWorker update found');
+
+              newWorker.addEventListener('statechange', function() {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('[App] New ServiceWorker installed, reloading page...');
+
+                  // Notify user and reload
+                  if (confirm('A new version is available. Reload to update?')) {
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                    window.location.reload();
+                  }
+                }
+              });
+            });
+          })
+          .catch(function(error) {
+            console.log('[App] ServiceWorker registration failed:', error);
+          });
+
+        // Handle controller change (new service worker activated)
+        navigator.serviceWorker.addEventListener('controllerchange', function() {
+          console.log('[App] ServiceWorker controller changed, reloading...');
+          window.location.reload();
+        });
+      });
+    }
+
+    // Add timestamp to prevent cache
+    (function() {
+      var timestamp = new Date().getTime();
+      console.log('[App] Loading with timestamp:', timestamp);
+
+      // Store version info
+      window.DESKWEB_VERSION = timestamp;
+    })();
+  </script>
+
+  <script type="text/javascript" src="${appPath}index.js?v=${timestamp}"></script>
 
  </head>
 <body>
