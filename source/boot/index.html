@@ -169,18 +169,26 @@
 
   <!-- CFB Library for HWP parsing -->
   <script src="resource/deskweb/lib/cfb.js"></script>
+  <!-- Pako Library for zlib decompression -->
+  <script src="resource/deskweb/lib/pako_inflate.min.js"></script>
 
   <!-- HWP Parser Implementation with CFB -->
   <script>
     // HWP viewer implementation with CFB library
     (function() {
-      // Extract text from HWP using CFB library
-      function extractText(data) {
+      // Extract text with detailed information (preview + full text)
+      function extractTextWithDetails(data) {
         try {
           // Check if CFB library is loaded
           if (typeof CFB === 'undefined') {
             console.warn('[HWP] CFB library not loaded, using fallback');
-            return extractTextFallback(data);
+            return {
+              preview: extractTextFallback(data),
+              fullText: null,
+              sections: [],
+              pageCount: 0,
+              source: 'fallback'
+            };
           }
 
           console.log('[HWP] Parsing HWP file with CFB library');
@@ -191,12 +199,59 @@
           console.log('[HWP] CFB parsed successfully');
           console.log('[HWP] CFB FileIndex:', cfb.FileIndex ? cfb.FileIndex.length : 0);
 
-          // Try to find PrvText stream
+          // Extract both preview and full text
+          var prvTextExtracted = extractPrvText(cfb);
+          var bodyTextData = extractBodyTextWithSections(cfb);
+
+          // Determine which source to use
+          var result = {
+            preview: prvTextExtracted,
+            fullText: bodyTextData.text,
+            sections: bodyTextData.sections,
+            pageCount: bodyTextData.sections.length || 0,
+            source: 'none'
+          };
+
+          if (bodyTextData.text && bodyTextData.text.length > 0) {
+            result.source = 'bodytext';
+            console.log('[HWP] Using BodyText, sections:', result.sections.length);
+          } else if (prvTextExtracted && prvTextExtracted.length > 0) {
+            result.source = 'prvtext';
+            result.pageCount = 1; // Preview is typically 1-2 pages
+            console.log('[HWP] Using PrvText only');
+          } else {
+            result.source = 'fallback';
+            result.preview = extractTextFallback(data);
+            console.warn('[HWP] Using fallback method');
+          }
+
+          return result;
+
+        } catch (e) {
+          console.error('[HWP] CFB parsing error:', e);
+          return {
+            preview: extractTextFallback(data),
+            fullText: null,
+            sections: [],
+            pageCount: 0,
+            source: 'fallback'
+          };
+        }
+      }
+
+      // Extract text from HWP using CFB library (backward compatibility)
+      function extractText(data) {
+        var textData = extractTextWithDetails(data);
+        return textData.fullText || textData.preview || '';
+      }
+
+      // Extract text from PrvText stream (preview, 1-2 pages)
+      function extractPrvText(cfb) {
+        try {
           var prvTextEntry = null;
           if (cfb.FileIndex) {
             for (var i = 0; i < cfb.FileIndex.length; i++) {
               var entry = cfb.FileIndex[i];
-              console.log('[HWP] Entry:', entry.name, 'Type:', entry.type);
               if (entry.name === 'PrvText' || entry.name === '\u0005PrvText') {
                 prvTextEntry = entry;
                 console.log('[HWP] Found PrvText entry');
@@ -220,21 +275,237 @@
               }
             }
 
-            console.log('[HWP] Extracted text length:', text.length);
-            console.log('[HWP] Text preview:', text.substring(0, 100));
+            console.log('[HWP] PrvText extracted, length:', text.length);
+            return text;
+          }
+          return null;
+        } catch (e) {
+          console.error('[HWP] PrvText extraction error:', e);
+          return null;
+        }
+      }
 
-            if (text.length > 0) {
-              return text;
+      // Extract text from BodyText sections with section details (full content)
+      function extractBodyTextWithSections(cfb) {
+        try {
+          if (!cfb.FileIndex) return { text: null, sections: [] };
+
+          // Log all entries to see the structure
+          console.log('[HWP] === All CFB Entries ===');
+          for (var i = 0; i < cfb.FileIndex.length; i++) {
+            var entry = cfb.FileIndex[i];
+            if (entry.type !== 0) { // Skip empty entries
+              console.log('[HWP] Entry[' + i + ']:', entry.name, 'Type:', entry.type, 'Size:', entry.size);
+            }
+          }
+          console.log('[HWP] === End of CFB Entries ===');
+
+          var bodyTextSections = [];
+
+          // Find all BodyText sections with flexible matching
+          for (var i = 0; i < cfb.FileIndex.length; i++) {
+            var entry = cfb.FileIndex[i];
+            if (!entry.name) continue;
+
+            // Match various patterns: BodyText/Section*, Section*, BodyText*
+            var name = entry.name.toLowerCase();
+            if (name.indexOf('bodytext') !== -1 || name.indexOf('section') !== -1) {
+              if (entry.type === 2 && entry.size > 0) { // Type 2 = file, not directory
+                bodyTextSections.push(entry);
+                console.log('[HWP] Found potential BodyText section:', entry.name, 'Size:', entry.size);
+              }
             }
           }
 
-          // If PrvText not found or empty, try fallback
-          console.warn('[HWP] PrvText not found or empty, using fallback');
-          return extractTextFallback(data);
+          if (bodyTextSections.length === 0) {
+            console.warn('[HWP] No BodyText sections found');
+            return { text: null, sections: [] };
+          }
 
+          var sections = [];
+
+          // Process each section
+          for (var i = 0; i < bodyTextSections.length; i++) {
+            var section = bodyTextSections[i];
+            if (!section.content) continue;
+
+            try {
+              // BodyText sections might be compressed with zlib
+              var decompressed = null;
+
+              // Try decompression first if pako is available
+              if (typeof pako !== 'undefined' && pako.inflate) {
+                console.log('[HWP] Pako available, attempting decompression of', section.name);
+                console.log('[HWP] Section content type:', section.content.constructor.name);
+                console.log('[HWP] Section first 16 bytes:', Array.from(section.content.slice(0, 16)).map(function(b) {
+                  return ('0' + b.toString(16)).slice(-2);
+                }).join(' '));
+
+                try {
+                  // Try inflate with different options
+                  decompressed = pako.inflate(section.content);
+                  console.log('[HWP] Successfully decompressed section', section.name, 'size:', decompressed.length);
+                } catch (inflateError) {
+                  console.error('[HWP] Pako inflate failed for', section.name);
+                  console.error('[HWP] Error:', inflateError);
+                  console.error('[HWP] Error message:', inflateError.message);
+                  console.error('[HWP] Error stack:', inflateError.stack);
+
+                  // Try inflateRaw (without zlib header)
+                  try {
+                    console.log('[HWP] Trying inflateRaw...');
+                    decompressed = pako.inflateRaw(section.content);
+                    console.log('[HWP] Successfully decompressed with inflateRaw', section.name, 'size:', decompressed.length);
+                  } catch (rawError) {
+                    console.error('[HWP] inflateRaw also failed:', rawError.message);
+                    // Last resort: use uncompressed
+                    console.warn('[HWP] Using uncompressed section data');
+                    decompressed = section.content;
+                  }
+                }
+              } else {
+                console.error('[HWP] Pako library not available! typeof pako:', typeof pako);
+                decompressed = section.content;
+              }
+
+              if (decompressed) {
+                // Extract text from decompressed data
+                var sectionText = extractTextFromBodySection(decompressed);
+                if (sectionText && sectionText.trim().length > 0) {
+                  sections.push({
+                    name: section.name,
+                    pageNumber: i + 1,
+                    text: sectionText
+                  });
+                }
+              }
+            } catch (sectionError) {
+              console.error('[HWP] Error processing section', section.name, ':', sectionError);
+            }
+          }
+
+          // Combine all sections
+          var allText = sections.map(function(s) { return s.text; }).join('\n\n');
+
+          return { text: allText, sections: sections };
         } catch (e) {
-          console.error('[HWP] CFB parsing error:', e);
-          return extractTextFallback(data);
+          console.error('[HWP] BodyText extraction error:', e);
+          return { text: null, sections: [] };
+        }
+      }
+
+      // Extract text from BodyText sections (backward compatibility)
+      function extractBodyText(cfb) {
+        var result = extractBodyTextWithSections(cfb);
+        return result.text;
+      }
+
+      // Extract text from decompressed BodyText section data
+      function extractTextFromBodySection(data) {
+        try {
+          var text = '';
+          var i = 0;
+          var recordCount = 0;
+          var textRecordCount = 0;
+
+          console.log('[HWP] === Parsing Section Data ===');
+          console.log('[HWP] Section data length:', data.length);
+          console.log('[HWP] First 32 bytes:', Array.from(data.slice(0, 32)).map(function(b) {
+            return ('0' + b.toString(16)).slice(-2);
+          }).join(' '));
+
+          // HWP BodyText uses a record-based structure
+          // Each record has: Tag (2 bytes) + Level (2 bytes) + Size (4 bytes) + Data
+          while (i < data.length - 8) {
+            // Read record header (HWP 5.0 format)
+            var tagId = data[i] | (data[i + 1] << 8);  // 2 bytes: Tag ID
+            var level = data[i + 2] | (data[i + 3] << 8);  // 2 bytes: Level
+            var sizeField = data[i + 4] | (data[i + 5] << 8) | (data[i + 6] << 16) | (data[i + 7] << 24);  // 4 bytes: Size with flags
+
+            // Extract actual size (lower 30 bits) and flags (upper 2 bits)
+            var recordSize = sizeField & 0x3FFFFFFF;  // Mask to get lower 30 bits
+            var hasAttr = (sizeField >>> 31) & 1;  // Get bit 31 (has additional attributes)
+
+            recordCount++;
+
+            i += 8;
+
+            if (recordCount <= 10) {
+              console.log('[HWP] Record', recordCount, '@ offset', (i - 8), '- Tag: 0x' + tagId.toString(16).padStart(4, '0'), 'Level:', level, 'Size:', recordSize, 'HasAttr:', hasAttr);
+            }
+
+            // For now, ignore the hasAttr flag and just use recordSize as-is
+            // The attribute bytes (if any) are part of the record data
+            var dataOffset = i;
+            var dataSize = recordSize;
+
+            if (recordCount <= 10) {
+              // Show first 32 bytes of record data
+              var dataBytes = Array.from(data.slice(dataOffset, dataOffset + Math.min(32, dataSize))).map(function(b) {
+                return ('0' + b.toString(16)).slice(-2);
+              }).join(' ');
+              console.log('[HWP]   Data preview (32 bytes):', dataBytes);
+            }
+
+            // HWP records are aligned to 4-byte boundaries
+            // Calculate aligned size (round up to nearest multiple of 4)
+            var alignedSize = Math.ceil(recordSize / 4) * 4;
+
+            if (recordCount <= 10) {
+              // Show bytes at the end of this record (next record should start here)
+              var nextRecordPos = i + alignedSize;
+              var nextRecordBytes = Array.from(data.slice(nextRecordPos, nextRecordPos + 8)).map(function(b) {
+                return ('0' + b.toString(16)).slice(-2);
+              }).join(' ');
+              console.log('[HWP]   Aligned size:', alignedSize, '→ Next @ offset', nextRecordPos, ':', nextRecordBytes);
+            }
+
+            if (alignedSize < 0 || alignedSize > data.length - i) {
+              console.log('[HWP] Invalid record size at record', recordCount, '- size:', recordSize, 'remaining:', (data.length - i));
+              // Show what's at this position
+              var errorBytes = Array.from(data.slice(i - 8, i + 16)).map(function(b) {
+                return ('0' + b.toString(16)).slice(-2);
+              }).join(' ');
+              console.log('[HWP] Bytes around error position:', errorBytes);
+              break; // Invalid record
+            }
+
+            // HWPTAG_PARA_TEXT = 0x0050 (paragraph text)
+            if (tagId === 0x0050) {
+              textRecordCount++;
+              console.log('[HWP] Found text record #' + textRecordCount + ' at offset', (i - 8), 'dataSize:', dataSize);
+
+              // Text is stored as UTF-16 LE (use dataOffset and dataSize, not i and recordSize)
+              var textData = data.slice(dataOffset, dataOffset + dataSize);
+              console.log('[HWP] Text data first 32 bytes:', Array.from(textData.slice(0, Math.min(32, dataSize))).map(function(b) {
+                return ('0' + b.toString(16)).slice(-2);
+              }).join(' '));
+
+              var extractedText = '';
+              for (var j = 0; j < textData.length - 1; j += 2) {
+                var charCode = textData[j] | (textData[j + 1] << 8);
+                if (charCode !== 0 && charCode !== 0xFEFF) {
+                  extractedText += String.fromCharCode(charCode);
+                }
+              }
+
+              console.log('[HWP] Extracted text from record:', extractedText.substring(0, 100));
+              text += extractedText;
+            }
+
+            // Use aligned size to move to next record
+            i += alignedSize;
+          }
+
+          console.log('[HWP] Total records parsed:', recordCount);
+          console.log('[HWP] Text records found:', textRecordCount);
+          console.log('[HWP] Total text length:', text.length);
+          console.log('[HWP] === End Section Parsing ===');
+
+          return text;
+        } catch (e) {
+          console.error('[HWP] Error extracting text from section:', e);
+          return null;
         }
       }
 
@@ -262,6 +533,69 @@
           console.error('[HWP] Fallback text extraction error:', e);
           return null;
         }
+      }
+
+      // Format complete document content with preview and full text
+      function formatDocumentContent(textData, rawData) {
+        if (!textData) {
+          return showFileStructure(rawData);
+        }
+
+        var html = '';
+
+        // Show preview section if available
+        if (textData.preview && textData.preview.length > 0) {
+          html += '<div style="background: white; padding: 30px; border: 2px solid #0078d4; margin-bottom: 20px; border-radius: 4px;">';
+          html += '<div style="background: #0078d4; color: white; padding: 10px; margin: -30px -30px 20px -30px; border-radius: 4px 4px 0 0;">';
+          html += '<h3 style="margin: 0; font-size: 16px;">📄 문서 미리보기 (PrvText)</h3>';
+          html += '</div>';
+          html += formatText(textData.preview);
+          html += '</div>';
+        }
+
+        // Show full text sections if available
+        if (textData.sections && textData.sections.length > 0) {
+          html += '<div style="background: white; padding: 30px; border: 2px solid #2196f3; border-radius: 4px;">';
+          html += '<div style="background: #2196f3; color: white; padding: 10px; margin: -30px -30px 20px -30px; border-radius: 4px 4px 0 0;">';
+          html += '<h3 style="margin: 0; font-size: 16px;">📖 본문 내용 (BodyText)</h3>';
+          html += '</div>';
+
+          // Render each section as a page
+          for (var i = 0; i < textData.sections.length; i++) {
+            var section = textData.sections[i];
+            html += '<div style="background: #fafafa; padding: 30px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; position: relative; min-height: 400px;">';
+
+            // Page number badge
+            html += '<div style="position: absolute; top: 10px; right: 10px; background: #2196f3; color: white; padding: 5px 12px; border-radius: 12px; font-size: 12px; font-weight: bold;">';
+            html += 'Page ' + section.pageNumber;
+            html += '</div>';
+
+            // Section content
+            html += '<div style="margin-top: 30px;">';
+            html += formatText(section.text);
+            html += '</div>';
+
+            // Page footer
+            html += '<div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #999; font-size: 12px;">';
+            html += '- ' + section.pageNumber + ' / ' + textData.sections.length + ' -';
+            html += '</div>';
+
+            html += '</div>';
+          }
+
+          html += '</div>';
+        } else if (textData.fullText && textData.fullText.length > 0) {
+          // Fallback: show full text without section separation
+          html += '<div style="background: white; padding: 30px; border: 1px solid #ddd; min-height: 400px; line-height: 1.8;">';
+          html += '<h3 style="color: #2196f3; margin-top: 0;">📖 문서 내용</h3>';
+          html += formatText(textData.fullText);
+          html += '</div>';
+        } else if (!textData.preview || textData.preview.length === 0) {
+          // No text extracted at all
+          html += showFileStructure(rawData);
+        }
+
+        return html;
       }
 
       function formatText(text) {
@@ -399,25 +733,23 @@
           }
 
           try {
-            var text = extractText(data);
+            // Extract both preview and full text
+            var textData = extractTextWithDetails(data);
 
             container.innerHTML = `
-            <div style="background: white; padding: 40px; max-width: 800px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="background: white; padding: 40px; max-width: 900px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
               <div style="background: #0078d4; color: white; padding: 15px; margin: -40px -40px 20px -40px;">
                 <h2 style="margin: 0; font-size: 18px;">한글 문서 (HWP)</h2>
               </div>
               <div style="background: #f8f9fa; padding: 20px; border-left: 4px solid #0078d4; margin-bottom: 20px;">
                 <p style="margin: 0; color: #333;"><strong>파일 크기:</strong> ${Math.round(data.length / 1024)} KB</p>
                 <p style="margin: 5px 0 0 0; color: #333;"><strong>데이터:</strong> ${data.length} bytes</p>
+                ${textData.pageCount > 0 ? '<p style="margin: 5px 0 0 0; color: #333;"><strong>페이지:</strong> ' + textData.pageCount + ' 페이지</p>' : ''}
               </div>
-              <div style="background: white; padding: 30px; border: 1px solid #ddd; min-height: 400px; line-height: 1.8;">
-                <h3 style="color: #0078d4; margin-top: 0;">문서 내용</h3>
-                ${text ? formatText(text) : showFileStructure(data)}
-              </div>
+              ${formatDocumentContent(textData, data)}
               <div style="background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin-top: 20px;">
                 <p style="margin: 0; color: #856404; font-size: 14px;">
-                  <strong>참고:</strong> 이것은 기본적인 HWP 파일 뷰어입니다.
-                  완전한 렌더링을 위해서는 추가 라이브러리가 필요합니다.
+                  <strong>참고:</strong> ${textData.source === 'bodytext' ? 'BodyText 섹션에서 전체 문서를 추출했습니다.' : textData.source === 'prvtext' ? 'PrvText에서 미리보기(1-2페이지)를 추출했습니다.' : '기본 텍스트 추출 방식을 사용했습니다.'}
                 </p>
               </div>
             </div>
