@@ -201,6 +201,16 @@ qx.Class.define("deskweb.Application",
           }
         },
         {
+          id: "hwpviewer",
+          label: "HWP Viewer",
+          icon: "deskweb/images/hwp.svg",
+          defaultLeft: 120,
+          defaultTop: 20,
+          action: function() {
+            this._openHWPViewerWindow(null);
+          }
+        },
+        {
           id: "askbot",
           label: "ASK BOT",
           icon: "deskweb/images/askbot.svg",
@@ -307,6 +317,9 @@ qx.Class.define("deskweb.Application",
         case "askbot":
           this._openAskBotWindow();
           break;
+        case "hwpviewer":
+          this._openHWPViewerWindow(null);
+          break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
           break;
@@ -377,6 +390,10 @@ qx.Class.define("deskweb.Application",
       switch(appId) {
         case "notepad":
           this._openNotepadWindow(filePath);
+          break;
+
+        case "hwpviewer":
+          this._openHWPViewerWindow(filePath);
           break;
 
         default:
@@ -473,6 +490,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened ASK BOT");
+    },
+
+    /**
+     * Open HWP Viewer window
+     */
+    _openHWPViewerWindow: function(filePath) {
+      var win = new deskweb.ui.HWPViewerWindow(filePath);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened HWP Viewer with file:", filePath);
     },
 
     /**

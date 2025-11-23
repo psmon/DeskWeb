@@ -53,6 +53,9 @@ qx.Class.define("deskweb.util.FileExtensionRegistry", {
       this.registerExtension("html", "notepad", "Notepad");
       this.registerExtension("css", "notepad", "Notepad");
 
+      // HWP files -> HWP Viewer
+      this.registerExtension("hwp", "hwpviewer", "HWP Viewer");
+
       // Future extensions can be added here
       // this.registerExtension("jpg", "imageviewer", "Image Viewer");
       // this.registerExtension("png", "imageviewer", "Image Viewer");
@@ -209,7 +212,8 @@ qx.Class.define("deskweb.util.FileExtensionRegistry", {
         'xml': 'icon/16/mimetypes/text-xml.png',
         'html': 'icon/16/mimetypes/text-html.png',
         'css': 'icon/16/mimetypes/text-css.png',
-        'js': 'icon/16/mimetypes/text-javascript.png'
+        'js': 'icon/16/mimetypes/text-javascript.png',
+        'hwp': 'deskweb/images/hwp.svg'
       };
 
       return iconMap[extension] || 'icon/16/mimetypes/office-document.png';

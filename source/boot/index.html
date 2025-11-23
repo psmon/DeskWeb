@@ -167,6 +167,94 @@
     }
   </script>
 
+  <!-- HWP.js library placeholder -->
+  <script>
+    // Temporary placeholder for hwp.js until proper browser bundle is created
+    // The actual hwp.js requires a proper build process for browser compatibility
+    window.hwpjs = {
+      Viewer: function(container, data) {
+        console.log('[HWP] Placeholder Viewer initialized');
+        console.log('[HWP] Container:', container);
+        console.log('[HWP] Data size:', data ? data.length : 0);
+
+        // Create a placeholder UI with scrollable content
+        container.innerHTML = `
+          <div style="padding: 40px; background: white; border: 2px dashed #ccc; border-radius: 8px; text-align: center; min-height: 1200px;">
+            <h2 style="color: #0078d4; margin-bottom: 20px;">HWP 뷰어</h2>
+            <div style="background: #f0f0f0; padding: 30px; border-radius: 6px; margin: 20px 0;">
+              <p style="font-size: 16px; color: #333; margin: 10px 0;">
+                <strong>파일 정보:</strong>
+              </p>
+              <p style="color: #666; margin: 5px 0;">
+                파일 크기: ${data ? Math.round(data.length / 1024) + ' KB' : '알 수 없음'}
+              </p>
+              <p style="color: #666; margin: 5px 0;">
+                형식: HWP (한글 워드프로세서)
+              </p>
+            </div>
+            <div style="background: #e8f4f8; padding: 20px; border-left: 4px solid #0078d4; margin: 20px 0; text-align: left;">
+              <p style="margin: 5px 0; color: #333;"><strong>안내:</strong></p>
+              <p style="margin: 5px 0; color: #555;">HWP 파일이 성공적으로 로드되었습니다.</p>
+              <p style="margin: 5px 0; color: #555;">실제 HWP 문서 렌더링을 위해서는 hwp.js 브라우저 번들이 필요합니다.</p>
+            </div>
+            <div style="margin-top: 30px; padding: 20px; background: white; border: 1px solid #ddd; text-align: left;">
+              <h3 style="color: #0078d4; margin-bottom: 15px;">구현된 기능:</h3>
+              <ul style="color: #555; line-height: 1.8; list-style-position: inside;">
+                <li>✅ HWP 파일 열기 (파일 선택 대화상자)</li>
+                <li>✅ 가상 파일 시스템에서 HWP 파일 로드</li>
+                <li>✅ 확대/축소 기능</li>
+                <li>✅ 페이지 탐색 기능</li>
+                <li>✅ 인쇄 기능</li>
+                <li>✅ 드래그 앤 드롭 지원</li>
+                <li>✅ 스크롤 기능</li>
+                <li>⏳ HWP 문서 렌더링 (hwp.js 브라우저 번들 필요)</li>
+              </ul>
+            </div>
+            <div style="margin-top: 30px; padding: 30px; background: #f9f9f9; border: 1px solid #ddd; text-align: left;">
+              <h3 style="color: #0078d4; margin-bottom: 15px;">문서 내용 미리보기</h3>
+              <p style="color: #555; line-height: 1.8; margin: 10px 0;">
+                이곳에는 실제 HWP 문서의 내용이 표시됩니다.
+              </p>
+              <p style="color: #555; line-height: 1.8; margin: 10px 0;">
+                hwp.js 라이브러리가 통합되면 한글 워드프로세서 문서의 텍스트, 이미지, 표,
+                그리고 다양한 서식이 원본 그대로 렌더링됩니다.
+              </p>
+              <div style="background: white; padding: 20px; margin: 20px 0; border-left: 3px solid #0078d4;">
+                <h4 style="color: #333; margin: 10px 0;">스크롤 테스트 영역</h4>
+                <p style="color: #666; line-height: 1.6;">
+                  이 영역은 스크롤 기능을 테스트하기 위한 공간입니다.
+                  창의 크기를 조절하거나 확대/축소 기능을 사용하여
+                  스크롤바가 정상적으로 작동하는지 확인하실 수 있습니다.
+                </p>
+                ${Array(10).fill(0).map((_, i) => `
+                  <p style="color: #888; line-height: 1.6; margin: 10px 0;">
+                    ${i + 1}. 스크롤 테스트 라인입니다.
+                    이 텍스트는 스크롤 기능이 정상적으로 작동하는지 확인하기 위한 것입니다.
+                    창의 높이보다 컨텐츠가 길 경우 스크롤바가 나타나야 합니다.
+                  </p>
+                `).join('')}
+              </div>
+            </div>
+            <div style="margin-top: 30px; padding: 20px; background: #fff3cd; border-left: 4px solid #ffc107; text-align: left;">
+              <h4 style="color: #856404; margin: 10px 0;">향후 개선 사항</h4>
+              <ul style="color: #856404; line-height: 1.8;">
+                <li>실제 HWP 문서 렌더링</li>
+                <li>텍스트 검색 기능</li>
+                <li>북마크 기능</li>
+                <li>주석 추가 기능</li>
+                <li>PDF 변환 기능</li>
+              </ul>
+            </div>
+          </div>
+        `;
+
+        return this;
+      }
+    };
+
+    console.log('[HWP] Placeholder library initialized');
+  </script>
+
   ${preBootJs}
 
   <!-- Service Worker Registration for cache management -->

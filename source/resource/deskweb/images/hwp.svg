@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Document background -->
+  <rect x="12" y="4" width="40" height="56" rx="2" fill="#ffffff" stroke="#4a90e2" stroke-width="2"/>
+
+  <!-- Folded corner -->
+  <path d="M 52 4 L 52 14 L 42 14 Z" fill="#4a90e2"/>
+  <path d="M 52 4 L 52 14 L 42 14 Z" fill="#e3f2fd" opacity="0.7"/>
+
+  <!-- HWP text -->
+  <text x="32" y="28" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#4a90e2" text-anchor="middle">HWP</text>
+
+  <!-- Korean character (한) -->
+  <text x="32" y="44" font-family="Malgun Gothic, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2196f3" text-anchor="middle">한</text>
+
+  <!-- Document lines -->
+  <line x1="18" y1="50" x2="46" y2="50" stroke="#ccc" stroke-width="1.5"/>
+  <line x1="18" y1="54" x2="40" y2="54" stroke="#ccc" stroke-width="1.5"/>
+</svg>
