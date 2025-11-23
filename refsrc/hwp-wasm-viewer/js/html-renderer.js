@@ -226,22 +226,49 @@ class HTMLRenderer {
 
         if (parsedData.sections) {
             debugText += '[ Sections ]\n';
-            debugText += '섹션 수: ' + parsedData.sections.length + '\n\n';
+            debugText += '섹션 수: ' + parsedData.sections.length + '\n';
+
+            // 전체 문단 수 계산
+            let totalParagraphs = 0;
+            parsedData.sections.forEach(section => {
+                totalParagraphs += section.paragraphs.length;
+            });
+            debugText += '전체 문단 수: ' + totalParagraphs + '개\n\n';
 
             parsedData.sections.forEach((section, i) => {
                 debugText += 'Section ' + i + ':\n';
                 debugText += '  레코드: ' + section.records.length + '개\n';
                 debugText += '  문단: ' + section.paragraphs.length + '개\n';
 
-                // 각 문단의 글자 수
-                section.paragraphs.forEach((para, j) => {
+                // 레코드 타입별 통계 (상위 3개만)
+                if (section.records.length > 0) {
+                    const tagCounts = {};
+                    section.records.forEach(record => {
+                        const tagId = '0x' + record.tagId.toString(16).padStart(2, '0');
+                        tagCounts[tagId] = (tagCounts[tagId] || 0) + 1;
+                    });
+                    const topTags = Object.entries(tagCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([tag, count]) => tag + '(' + count + ')')
+                        .join(', ');
+                    debugText += '  주요 태그: ' + topTags + '\n';
+                }
+
+                // 각 문단의 글자 수 (최대 3개만 표시)
+                const paraCount = Math.min(section.paragraphs.length, 3);
+                for (let j = 0; j < paraCount; j++) {
+                    const para = section.paragraphs[j];
                     const charCount = para.text?.length || 0;
                     if (charCount > 0) {
                         const preview = para.text.substring(0, 30).replace(/\n/g, ' ');
                         const ellipsis = charCount > 30 ? '...' : '';
                         debugText += '    P' + j + ': ' + charCount + '자 - "' + preview + ellipsis + '"\n';
                     }
-                });
+                }
+                if (section.paragraphs.length > 3) {
+                    debugText += '    ... (총 ' + section.paragraphs.length + '개 문단)\n';
+                }
                 debugText += '\n';
             });
         }

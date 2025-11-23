@@ -137,7 +137,7 @@ class HWPParser {
      * 섹션 파싱
      */
     parseSections() {
-        const sectionCount = this.fileHeader ? 10 : 1; // 최대 10개 섹션 시도
+        const sectionCount = 10; // 최대 10개 섹션 시도
 
         for (let i = 0; i < sectionCount; i++) {
             let data = this.cfb.readSection(i);
@@ -148,42 +148,66 @@ class HWPParser {
                 break;
             }
 
-            console.log(`Section${i} 원본 크기: ${data.length} bytes, 첫 4바이트: 0x${Array.from(data.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join('')}`);
+            console.log(`Section${i} 원본 크기: ${data.length} bytes`);
 
-            // 레코드 파싱 시도 (압축된 경우와 비압축된 경우 모두 시도)
-            let records = [];
-            let paragraphs = [];
+            // ViewText 섹션 감지 (첫 4바이트 확인)
+            // ViewText는 일반적으로 0x1c로 시작하고 비압축
+            const firstByte = data[0];
+            const isViewText = firstByte === 0x1c;
 
-            // 먼저 압축 해제 시도
-            if (this.fileHeader.flags.compressed) {
-                records = this.parseRecords(data, true);
-                paragraphs = this.extractParagraphs(records);
-
-                // 압축 해제 후에도 문단이 없으면 비압축으로 재시도
-                if (paragraphs.length === 0 && records.length === 0) {
-                    console.log(`Section${i}: 압축 해제 결과 없음, 비압축 데이터로 재시도`);
-                    records = this.parseRecords(data, false);
-                    paragraphs = this.extractParagraphs(records);
-                }
-            } else {
-                records = this.parseRecords(data, false);
-                paragraphs = this.extractParagraphs(records);
+            // 압축 여부 결정
+            // ViewText는 비압축, BodyText는 FileHeader 플래그 따름
+            let isCompressed = false;
+            if (!isViewText && this.fileHeader) {
+                isCompressed = this.fileHeader.flags.compressed;
             }
+
+            if (isViewText) {
+                console.log(`  → ViewText 섹션 감지 (비압축)`);
+            }
+
+            // 레코드 파싱 (스트림 전체 압축 해제 후 파싱)
+            const records = this.parseRecords(data, isCompressed);
+            const paragraphs = this.extractParagraphs(records);
 
             this.sections.push({
                 index: i,
                 records: records,
-                paragraphs: paragraphs
+                paragraphs: paragraphs,
+                isViewText: isViewText
+            });
+
+            // 레코드 타입별 통계
+            const tagCounts = {};
+            records.forEach(record => {
+                const tagName = this.getTagName(record.tagId);
+                tagCounts[tagName] = (tagCounts[tagName] || 0) + 1;
             });
 
             console.log(`Section${i}: ${records.length}개 레코드, ${paragraphs.length}개 문단`);
+            if (records.length > 0) {
+                console.log('  레코드 타입:', Object.keys(tagCounts).slice(0, 5).join(', ') + (Object.keys(tagCounts).length > 5 ? '...' : ''));
+            }
         }
     }
 
     /**
      * 레코드 구조 파싱
+     * 핵심: 먼저 스트림 전체를 압축 해제한 후 레코드 파싱
      */
     parseRecords(data, isCompressed = false) {
+        // Step 1: 스트림 전체 압축 해제 (레코드 단위 X)
+        if (isCompressed && data.length > 0) {
+            try {
+                const decompressed = this.decompressStream(data);
+                console.log(`스트림 압축 해제 성공: ${data.length} -> ${decompressed.length} bytes`);
+                data = decompressed;
+            } catch (e) {
+                console.warn('스트림 압축 해제 실패, 원본 사용:', e.message);
+            }
+        }
+
+        // Step 2: 압축 해제된 데이터에서 레코드 파싱
         const records = [];
         let offset = 0;
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -214,27 +238,9 @@ class HWPParser {
                     break;
                 }
 
-                // 압축된 데이터 읽기
-                let recordData = data.slice(offset, offset + size);
+                // 레코드 데이터 읽기 (이미 압축 해제됨)
+                const recordData = data.slice(offset, offset + size);
                 offset += size;
-
-                // 압축 해제 시도 (isCompressed가 true이고 데이터가 있을 때)
-                if (isCompressed && size > 0) {
-                    try {
-                        const decompressed = this.decompressStream(recordData);
-                        // 디버그: PARA_HEADER인 경우 로그
-                        if (tagId === 0x50) {
-                            console.log(`PARA_HEADER 압축 해제: ${size} -> ${decompressed.length} bytes`);
-                        }
-                        recordData = decompressed;
-                    } catch (e) {
-                        // 압축 해제 실패 - 원본 데이터 사용
-                        // 일부 레코드는 압축되지 않을 수 있음
-                        if (tagId === 0x50 || tagId === 0x51) {
-                            console.warn(`TagID 0x${tagId.toString(16)} 압축 해제 실패, 원본 사용`);
-                        }
-                    }
-                }
 
                 records.push({
                     tagId,
@@ -275,9 +281,77 @@ class HWPParser {
                     text: text
                 });
             }
+            // PARA_TEXT 단독 (PARA_HEADER 없이)
+            else if (record.tagId === 0x51) {
+                const text = this.parseParaText(record.data);
+                if (text.trim().length > 0) {
+                    paragraphs.push({
+                        header: null,
+                        text: text
+                    });
+                }
+            }
+            // ViewText 등에서 다른 태그로 저장된 텍스트 시도
+            else if (record.data.length >= 2) {
+                // UTF-16LE 텍스트인지 휴리스틱 체크
+                const possibleText = this.tryParseText(record.data);
+                if (possibleText && possibleText.trim().length > 10) {
+                    // 10자 이상의 유효한 텍스트만
+                    paragraphs.push({
+                        header: null,
+                        text: possibleText,
+                        tagId: record.tagId  // 디버그용
+                    });
+                }
+            }
         }
 
         return paragraphs;
+    }
+
+    /**
+     * UTF-16LE 텍스트 파싱 시도 (휴리스틱)
+     */
+    tryParseText(data, minLength = 10) {
+        if (data.length < 2) return null;
+
+        try {
+            const text = new TextDecoder('utf-16le').decode(data);
+
+            // 유효한 텍스트인지 검증
+            // - 대부분 인쇄 가능한 문자
+            // - 너무 많은 제어 문자 없음
+            let printableCount = 0;
+            let totalCount = 0;
+
+            for (let i = 0; i < Math.min(text.length, 100); i++) {
+                const code = text.charCodeAt(i);
+                totalCount++;
+                if ((code >= 32 && code <= 126) || // ASCII 인쇄 가능
+                    (code >= 0xAC00 && code <= 0xD7A3) || // 한글
+                    code === 10 || code === 13 || code === 9) { // 개행, 탭
+                    printableCount++;
+                }
+            }
+
+            const ratio = printableCount / totalCount;
+
+            // 60% 이상이 인쇄 가능한 문자면 텍스트로 간주
+            if (ratio >= 0.6) {
+                // 제어 문자 필터링
+                const cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+                // 디버그: 텍스트 발견 시 로그
+                if (cleaned.trim().length >= minLength) {
+                    console.log(`  💡 텍스트 발견 (ratio=${(ratio*100).toFixed(0)}%): "${cleaned.substring(0, 60)}..."`);
+                    return cleaned;
+                }
+            }
+        } catch (e) {
+            // 디코딩 실패
+        }
+
+        return null;
     }
 
     /**

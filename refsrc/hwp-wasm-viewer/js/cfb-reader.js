@@ -43,16 +43,55 @@ class CFBReader {
 
     /**
      * 특정 스트림 읽기
-     * @param {string} streamName - 스트림 이름 (예: "FileHeader", "DocInfo")
+     * @param {string} streamName - 스트림 이름 (예: "FileHeader", "BodyText/Section0")
      * @returns {Uint8Array|null} 스트림 데이터
      */
     readStream(streamName) {
         try {
-            const data = CFB.find(this.cfb, streamName);
+            let data;
+
+            // CFB.find 시도 (문자열만 - 배열은 charCodeAt 오류 발생)
+            try {
+                data = CFB.find(this.cfb, streamName);
+            } catch (e) {
+                // CFB.find 실패 시 무시
+            }
+
+            // 실패하면 FileIndex에서 직접 검색
             if (!data) {
-                console.warn(`스트림을 찾을 수 없습니다: ${streamName}`);
+                const pathParts = streamName.split('/').filter(p => p);
+
+                data = this.cfb.FileIndex.find(entry => {
+                    if (!entry.name) return false;
+
+                    // 정확히 일치
+                    if (entry.name === streamName) return true;
+
+                    // '/' 로 시작하는 경로 비교
+                    if ('/' + streamName === entry.name) return true;
+                    if (streamName === '/' + entry.name) return true;
+
+                    // 경로 부분 비교 (ViewText/Section0 vs Section0)
+                    const entryParts = entry.name.split('/').filter(p => p);
+
+                    // 완전 일치
+                    if (entryParts.length === pathParts.length) {
+                        return entryParts.every((part, idx) => part === pathParts[idx]);
+                    }
+
+                    // 부분 일치 (마지막 부분만 - Section0 등)
+                    if (pathParts.length > 0 && entryParts.length > 0) {
+                        return entryParts[entryParts.length - 1] === pathParts[pathParts.length - 1];
+                    }
+
+                    return false;
+                });
+            }
+
+            if (!data) {
                 return null;
             }
+
             // content를 Uint8Array로 변환
             return new Uint8Array(data.content);
         } catch (error) {
@@ -62,15 +101,20 @@ class CFBReader {
     }
 
     /**
-     * 섹션 스트림 읽기 (BodyText/Section0, Section1... 또는 Section0, Section1...)
+     * 섹션 스트림 읽기 (BodyText/Section0, ViewText/Section0, Section0 순서로 시도)
      * @param {number} sectionIndex - 섹션 번호
      * @returns {Uint8Array|null}
      */
     readSection(sectionIndex) {
-        // 먼저 BodyText 스토리지 내부에서 찾기
+        // 1. BodyText 스토리지 내부에서 찾기
         let data = this.readStream(`BodyText/Section${sectionIndex}`);
 
-        // 없으면 루트에서 직접 찾기
+        // 2. ViewText 스토리지에서 찾기
+        if (!data) {
+            data = this.readStream(`ViewText/Section${sectionIndex}`);
+        }
+
+        // 3. 루트에서 직접 찾기
         if (!data) {
             data = this.readStream(`Section${sectionIndex}`);
         }
@@ -104,6 +148,14 @@ class CFBReader {
         this.listStorages().forEach(name => console.log(`  📁 ${name}`));
         console.log('\nStreams:');
         this.listStreams().forEach(name => console.log(`  📄 ${name}`));
+
+        // 디버그: 모든 엔트리의 실제 경로 출력
+        console.log('\n=== All FileIndex Entries (Debug) ===');
+        this.entries.forEach((entry, idx) => {
+            if (entry.name && entry.name.includes('Section')) {
+                console.log(`[${idx}] ${entry.name} (type=${entry.type})`);
+            }
+        });
     }
 
     /**
