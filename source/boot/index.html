@@ -407,51 +407,69 @@
           var i = 0;
           var recordCount = 0;
           var textRecordCount = 0;
+          var HWPTAG_BEGIN = 0x010;
+          var HWPTAG_PARA_HEADER = HWPTAG_BEGIN + 50;  // 0x042
+          var HWPTAG_PARA_TEXT = HWPTAG_BEGIN + 51;    // 0x043
 
-          console.log('[HWP] === Parsing Section Data ===');
+          console.log('[HWP] === Parsing Section Data (HWP 5.0 Spec) ===');
           console.log('[HWP] Section data length:', data.length);
           console.log('[HWP] First 32 bytes:', Array.from(data.slice(0, 32)).map(function(b) {
             return ('0' + b.toString(16)).slice(-2);
           }).join(' '));
 
-          // HWP BodyText uses a record-based structure
-          // Each record has: Tag (2 bytes) + Level (2 bytes) + Size (4 bytes) + Data
-          while (i < data.length - 8) {
-            // Read record header (HWP 5.0 format)
-            var tagId = data[i] | (data[i + 1] << 8);  // 2 bytes: Tag ID
-            var level = data[i + 2] | (data[i + 3] << 8);  // 2 bytes: Level
-            var sizeField = data[i + 4] | (data[i + 5] << 8) | (data[i + 6] << 16) | (data[i + 7] << 24);  // 4 bytes: Size with flags
+          // HWP 5.0 Record Structure:
+          // Header: 4 bytes with bit fields
+          //   - Tag ID: bits 0-9 (10 bits)
+          //   - Level: bits 10-19 (10 bits)
+          //   - Size: bits 20-31 (12 bits, max 4095 bytes)
+          // Data: Size bytes
+          // Alignment: Records are 4-byte aligned
 
-            // Extract actual size (lower 30 bits) and flags (upper 2 bits)
-            var recordSize = sizeField & 0x3FFFFFFF;  // Mask to get lower 30 bits
-            var hasAttr = (sizeField >>> 31) & 1;  // Get bit 31 (has additional attributes)
+          while (i < data.length - 4) {
+            // Read 4-byte header
+            var header = data[i] | (data[i + 1] << 8) | (data[i + 2] << 16) | (data[i + 3] << 24);
+
+            // Extract bit fields according to HWP 5.0 spec
+            var tag = header & 0x3FF;              // Bits 0-9: Tag ID
+            var level = (header >> 10) & 0x3FF;    // Bits 10-19: Level
+            var size = (header >> 20) & 0xFFF;     // Bits 20-31: Size (12 bits, max 4095)
 
             recordCount++;
+            i += 4;  // Move past header
 
-            i += 8;
-
-            if (recordCount <= 10) {
-              console.log('[HWP] Record', recordCount, '@ offset', (i - 8), '- Tag: 0x' + tagId.toString(16).padStart(4, '0'), 'Level:', level, 'Size:', recordSize, 'HasAttr:', hasAttr);
+            if (recordCount <= 15) {
+              console.log('[HWP] Record', recordCount, '@ offset', (i - 4), '- Tag: 0x' + tag.toString(16).padStart(3, '0'),
+                         'Level:', level, 'Size:', size);
             }
 
-            // For now, ignore the hasAttr flag and just use recordSize as-is
-            // The attribute bytes (if any) are part of the record data
-            var dataOffset = i;
-            var dataSize = recordSize;
+            // Handle extended size (if size == 4095, next DWORD contains actual size)
+            var actualSize = size;
+            if (size === 0xFFF && i + 4 <= data.length) {
+              actualSize = data[i] | (data[i + 1] << 8) | (data[i + 2] << 16) | (data[i + 3] << 24);
+              i += 4;
+              if (recordCount <= 15) {
+                console.log('[HWP]   Extended size detected: actual size =', actualSize);
+              }
+            }
 
-            if (recordCount <= 10) {
+            // Check bounds
+            if (i + actualSize > data.length) {
+              console.warn('[HWP] Record size exceeds data length, stopping parse');
+              break;
+            }
+
+            if (recordCount <= 15 && actualSize > 0) {
               // Show first 32 bytes of record data
-              var dataBytes = Array.from(data.slice(dataOffset, dataOffset + Math.min(32, dataSize))).map(function(b) {
+              var dataBytes = Array.from(data.slice(i, i + Math.min(32, actualSize))).map(function(b) {
                 return ('0' + b.toString(16)).slice(-2);
               }).join(' ');
               console.log('[HWP]   Data preview (32 bytes):', dataBytes);
             }
 
-            // HWP records are aligned to 4-byte boundaries
-            // Calculate aligned size (round up to nearest multiple of 4)
-            var alignedSize = Math.ceil(recordSize / 4) * 4;
+            // Records are aligned to 4-byte boundaries
+            var alignedSize = Math.ceil(actualSize / 4) * 4;
 
-            if (recordCount <= 10) {
+            if (recordCount <= 15) {
               // Show bytes at the end of this record (next record should start here)
               var nextRecordPos = i + alignedSize;
               var nextRecordBytes = Array.from(data.slice(nextRecordPos, nextRecordPos + 8)).map(function(b) {
@@ -461,35 +479,40 @@
             }
 
             if (alignedSize < 0 || alignedSize > data.length - i) {
-              console.log('[HWP] Invalid record size at record', recordCount, '- size:', recordSize, 'remaining:', (data.length - i));
-              // Show what's at this position
-              var errorBytes = Array.from(data.slice(i - 8, i + 16)).map(function(b) {
-                return ('0' + b.toString(16)).slice(-2);
-              }).join(' ');
-              console.log('[HWP] Bytes around error position:', errorBytes);
+              console.warn('[HWP] Invalid record size at record', recordCount, '- size:', actualSize, 'remaining:', (data.length - i));
               break; // Invalid record
             }
 
-            // HWPTAG_PARA_TEXT = 0x0050 (paragraph text)
-            if (tagId === 0x0050) {
+            // HWPTAG_PARA_TEXT = 0x043 (paragraph text)
+            if (tag === HWPTAG_PARA_TEXT) {
               textRecordCount++;
-              console.log('[HWP] Found text record #' + textRecordCount + ' at offset', (i - 8), 'dataSize:', dataSize);
+              if (textRecordCount <= 10) {
+                console.log('[HWP] Found HWPTAG_PARA_TEXT #' + textRecordCount + ' at offset', (i - 4), 'size:', actualSize);
+              }
 
-              // Text is stored as UTF-16 LE (use dataOffset and dataSize, not i and recordSize)
-              var textData = data.slice(dataOffset, dataOffset + dataSize);
-              console.log('[HWP] Text data first 32 bytes:', Array.from(textData.slice(0, Math.min(32, dataSize))).map(function(b) {
-                return ('0' + b.toString(16)).slice(-2);
-              }).join(' '));
+              // Text is stored as UTF-16 LE
+              var textData = data.slice(i, i + actualSize);
+
+              if (textRecordCount <= 10 && actualSize > 0) {
+                console.log('[HWP] Text data first 32 bytes:', Array.from(textData.slice(0, Math.min(32, actualSize))).map(function(b) {
+                  return ('0' + b.toString(16)).slice(-2);
+                }).join(' '));
+              }
 
               var extractedText = '';
               for (var j = 0; j < textData.length - 1; j += 2) {
                 var charCode = textData[j] | (textData[j + 1] << 8);
-                if (charCode !== 0 && charCode !== 0xFEFF) {
+                // Filter out control characters but keep newlines and other whitespace
+                if (charCode === 0x000A || charCode === 0x000D) {
+                  extractedText += '\n';
+                } else if (charCode > 0x001F && charCode !== 0xFEFF) {
                   extractedText += String.fromCharCode(charCode);
                 }
               }
 
-              console.log('[HWP] Extracted text from record:', extractedText.substring(0, 100));
+              if (textRecordCount <= 10 && extractedText.length > 0) {
+                console.log('[HWP] Extracted text:', extractedText.substring(0, 100) + (extractedText.length > 100 ? '...' : ''));
+              }
               text += extractedText;
             }
 

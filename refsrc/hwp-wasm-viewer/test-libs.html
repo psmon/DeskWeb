@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>라이브러리 테스트</title>
+</head>
+<body>
+    <h1>라이브러리 로딩 테스트</h1>
+    <div id="output"></div>
+
+    <script src="https://unpkg.com/cfb@1.2.2/dist/cfb.min.js"></script>
+    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+
+    <script>
+        const output = document.getElementById('output');
+        let html = '';
+
+        // CFB 라이브러리 체크
+        if (typeof CFB !== 'undefined') {
+            html += '<p style="color: green;">✅ CFB 라이브러리 로드 성공</p>';
+            html += '<p>CFB 버전: ' + (CFB.version || 'unknown') + '</p>';
+            console.log('CFB:', CFB);
+        } else {
+            html += '<p style="color: red;">❌ CFB 라이브러리 로드 실패</p>';
+        }
+
+        // pako 라이브러리 체크
+        if (typeof pako !== 'undefined') {
+            html += '<p style="color: green;">✅ pako 라이브러리 로드 성공</p>';
+            html += '<p>pako 버전: ' + (pako.version || 'unknown') + '</p>';
+            console.log('pako:', pako);
+        } else {
+            html += '<p style="color: red;">❌ pako 라이브러리 로드 실패</p>';
+        }
+
+        output.innerHTML = html;
+    </script>
+</body>
+</html>

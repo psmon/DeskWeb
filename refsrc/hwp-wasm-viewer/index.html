@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HWP WebAssembly Viewer</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HWP WebAssembly Viewer</h1>
+            <p>순수 JavaScript와 WebAssembly를 활용한 HWP 파일 뷰어</p>
+        </header>
+
+        <main>
+            <section class="file-section">
+                <div class="file-input-container">
+                    <label for="hwp-file" class="file-label">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                            <polyline points="13 2 13 9 20 9"></polyline>
+                        </svg>
+                        <span>HWP 파일 선택</span>
+                    </label>
+                    <input type="file" id="hwp-file" accept=".hwp" />
+                </div>
+                <div id="file-info" class="file-info hidden"></div>
+            </section>
+
+            <section class="debug-section">
+                <h2>디버그 정보</h2>
+                <div id="debug-output" class="debug-output"></div>
+            </section>
+
+            <section class="render-section">
+                <h2>렌더링 결과</h2>
+                <div id="render-output" class="render-output"></div>
+            </section>
+        </main>
+
+        <footer>
+            <p>HWP 5.0 파일 형식 명세 기반 구현</p>
+        </footer>
+    </div>
+
+    <!-- External Libraries (로컬 버전) -->
+    <script src="lib/cfb.min.js"></script>
+    <script src="lib/pako.min.js"></script>
+
+    <!-- CDN 백업 (로컬 파일 로드 실패 시) -->
+    <script>
+        if (typeof CFB === 'undefined') {
+            document.write('<script src="https://unpkg.com/cfb@1.2.2/dist/cfb.min.js"><\/script>');
+        }
+        if (typeof pako === 'undefined') {
+            document.write('<script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"><\/script>');
+        }
+    </script>
+
+    <!-- Application Scripts -->
+    <script src="js/cfb-reader.js"></script>
+    <script src="js/hwp-parser.js"></script>
+    <script src="js/html-renderer.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

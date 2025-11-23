@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PrvText 테스트</title>
+</head>
+<body>
+    <h1>PrvText 테스트</h1>
+    <input type="file" id="hwp-file" accept=".hwp" />
+    <pre id="output"></pre>
+
+    <script src="lib/cfb.min.js"></script>
+    <script>
+        document.getElementById('hwp-file').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const arrayBuffer = await file.arrayBuffer();
+            const cfb = CFB.read(new Uint8Array(arrayBuffer), { type: 'array' });
+
+            // PrvText 읽기
+            const prvText = CFB.find(cfb, 'PrvText');
+            if (prvText) {
+                const text = new TextDecoder('utf-16le').decode(prvText.content);
+                document.getElementById('output').textContent = 'PrvText 내용:\n\n' + text;
+            } else {
+                document.getElementById('output').textContent = 'PrvText를 찾을 수 없습니다.';
+            }
+        });
+    </script>
+</body>
+</html>
