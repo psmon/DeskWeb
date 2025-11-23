@@ -167,18 +167,300 @@
     }
   </script>
 
-  <!-- HWP.js library placeholder -->
-  <script>
-    // Temporary placeholder for hwp.js until proper browser bundle is created
-    // The actual hwp.js requires a proper build process for browser compatibility
-    window.hwpjs = {
-      Viewer: function(container, data) {
-        console.log('[HWP] Placeholder Viewer initialized');
-        console.log('[HWP] Container:', container);
-        console.log('[HWP] Data size:', data ? data.length : 0);
+  <!-- CFB Library for HWP parsing -->
+  <script src="resource/deskweb/lib/cfb.js"></script>
 
-        // Create a placeholder UI with scrollable content
-        container.innerHTML = `
+  <!-- HWP Parser Implementation with CFB -->
+  <script>
+    // HWP viewer implementation with CFB library
+    (function() {
+      // Extract text from HWP using CFB library
+      function extractText(data) {
+        try {
+          // Check if CFB library is loaded
+          if (typeof CFB === 'undefined') {
+            console.warn('[HWP] CFB library not loaded, using fallback');
+            return extractTextFallback(data);
+          }
+
+          console.log('[HWP] Parsing HWP file with CFB library');
+
+          // Parse HWP file using CFB
+          var cfb = CFB.read(data, { type: 'array' });
+
+          console.log('[HWP] CFB parsed successfully');
+          console.log('[HWP] CFB FileIndex:', cfb.FileIndex ? cfb.FileIndex.length : 0);
+
+          // Try to find PrvText stream
+          var prvTextEntry = null;
+          if (cfb.FileIndex) {
+            for (var i = 0; i < cfb.FileIndex.length; i++) {
+              var entry = cfb.FileIndex[i];
+              console.log('[HWP] Entry:', entry.name, 'Type:', entry.type);
+              if (entry.name === 'PrvText' || entry.name === '\u0005PrvText') {
+                prvTextEntry = entry;
+                console.log('[HWP] Found PrvText entry');
+                break;
+              }
+            }
+          }
+
+          if (prvTextEntry && prvTextEntry.content) {
+            console.log('[HWP] PrvText content size:', prvTextEntry.content.length);
+
+            // PrvText is stored as UTF-16 LE (Little Endian)
+            var prvTextData = prvTextEntry.content;
+            var text = '';
+
+            // Decode UTF-16 LE
+            for (var i = 0; i < prvTextData.length - 1; i += 2) {
+              var charCode = prvTextData[i] | (prvTextData[i + 1] << 8);
+              if (charCode !== 0 && charCode !== 0xFEFF) { // Skip null and BOM
+                text += String.fromCharCode(charCode);
+              }
+            }
+
+            console.log('[HWP] Extracted text length:', text.length);
+            console.log('[HWP] Text preview:', text.substring(0, 100));
+
+            if (text.length > 0) {
+              return text;
+            }
+          }
+
+          // If PrvText not found or empty, try fallback
+          console.warn('[HWP] PrvText not found or empty, using fallback');
+          return extractTextFallback(data);
+
+        } catch (e) {
+          console.error('[HWP] CFB parsing error:', e);
+          return extractTextFallback(data);
+        }
+      }
+
+      // Fallback text extraction (original method)
+      function extractTextFallback(data) {
+        var text = '';
+        var decoder = new TextDecoder('utf-8', { fatal: false });
+
+        try {
+          text = decoder.decode(data);
+          text = text.replace(/[\x00-\x1F\x7F-\x9F]/g, ' ');
+
+          var koreanText = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]+/g);
+          if (koreanText && koreanText.length > 0) {
+            return koreanText.join(' ');
+          }
+
+          var asciiText = text.match(/[a-zA-Z0-9\s.,!?;:'"()-]{10,}/g);
+          if (asciiText && asciiText.length > 0) {
+            return asciiText.join(' ');
+          }
+
+          return null;
+        } catch (e) {
+          console.error('[HWP] Fallback text extraction error:', e);
+          return null;
+        }
+      }
+
+      function formatText(text) {
+        if (!text || text.length === 0) {
+          return '<p style="color: #999;">텍스트를 추출할 수 없습니다.</p>';
+        }
+
+        // Escape HTML
+        text = text.replace(/&/g, '&amp;')
+                   .replace(/</g, '&lt;')
+                   .replace(/>/g, '&gt;');
+
+        // Split by line breaks (both \n and \r\n)
+        var lines = text.split(/\r?\n/);
+        var html = '';
+
+        lines.forEach(function(line) {
+          line = line.trim();
+          if (line.length > 0) {
+            html += '<p style="margin: 8px 0; color: #333; line-height: 1.8; font-family: \'Malgun Gothic\', \'맑은 고딕\', sans-serif;">' + line + '</p>';
+          } else {
+            // Empty line = paragraph break
+            html += '<div style="height: 8px;"></div>';
+          }
+        });
+
+        return html || '<p style="color: #999;">텍스트 형식을 인식할 수 없습니다.</p>';
+      }
+
+      function getFileSignature(data) {
+        if (!data || data.length < 4) return 'N/A';
+        var sig = '';
+        for (var i = 0; i < Math.min(4, data.length); i++) {
+          sig += ('0' + data[i].toString(16)).slice(-2).toUpperCase() + ' ';
+        }
+        return sig.trim();
+      }
+
+      function getHexDump(data, maxBytes) {
+        var bytes = Math.min(maxBytes || 256, data.length);
+        var result = '';
+
+        for (var i = 0; i < bytes; i += 16) {
+          result += ('0000' + i.toString(16)).slice(-4).toUpperCase() + '  ';
+
+          for (var j = 0; j < 16; j++) {
+            if (i + j < bytes) {
+              result += ('0' + data[i + j].toString(16)).slice(-2).toUpperCase() + ' ';
+            } else {
+              result += '   ';
+            }
+            if (j === 7) result += ' ';
+          }
+
+          result += ' ';
+
+          for (var j = 0; j < 16; j++) {
+            if (i + j < bytes) {
+              var byte = data[i + j];
+              result += (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : '.';
+            }
+          }
+
+          result += '\n';
+        }
+
+        return result;
+      }
+
+      function showFileStructure(data) {
+        var signature = getFileSignature(data);
+        var isHWP = signature.includes('D0 CF 11 E0');
+
+        // Try to get CFB structure info
+        var cfbInfo = '';
+        try {
+          if (typeof CFB !== 'undefined') {
+            var cfb = CFB.read(data, { type: 'array' });
+            if (cfb.FileIndex) {
+              cfbInfo = '<div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107;">';
+              cfbInfo += '<p style="margin: 0 0 10px 0; color: #856404; font-size: 14px;"><strong>CFB 스트림 목록:</strong></p>';
+              cfbInfo += '<ul style="margin: 0; padding-left: 20px; color: #856404;">';
+              for (var i = 0; i < Math.min(cfb.FileIndex.length, 10); i++) {
+                var entry = cfb.FileIndex[i];
+                if (entry.type !== 0) { // Not empty
+                  cfbInfo += '<li>' + entry.name + ' (' + (entry.type === 2 ? 'File' : 'Directory') + ')</li>';
+                }
+              }
+              if (cfb.FileIndex.length > 10) {
+                cfbInfo += '<li>... and ' + (cfb.FileIndex.length - 10) + ' more</li>';
+              }
+              cfbInfo += '</ul></div>';
+            }
+          }
+        } catch (e) {
+          console.error('[HWP] Error getting CFB structure:', e);
+        }
+
+        return `
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 4px;">
+            <h4 style="color: #0078d4; margin-top: 0;">파일 구조 정보</h4>
+            <p style="color: #555;"><strong>파일 시그니처:</strong> ${signature}</p>
+            <p style="color: #555;"><strong>파일 형식:</strong> ${isHWP ? 'HWP (OLE2 복합 문서)' : '알 수 없음'}</p>
+            <p style="color: #555;"><strong>데이터 크기:</strong> ${data.length} bytes (${Math.round(data.length / 1024)} KB)</p>
+
+            <div style="margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd;">
+              <p style="margin: 0; color: #666; line-height: 1.6;">
+                이 HWP 파일은 복합 문서 형식입니다.
+                PrvText 스트림에서 미리보기 텍스트를 추출하지 못했습니다.
+                완전한 문서를 보려면 BodyText 섹션 파싱이 필요합니다.
+              </p>
+            </div>
+
+            ${cfbInfo}
+
+            <div style="margin-top: 15px; padding: 15px; background: #e3f2fd; border-left: 3px solid #2196f3;">
+              <p style="margin: 0; color: #1976d2; font-size: 14px;">
+                <strong>원시 데이터 미리보기:</strong>
+              </p>
+              <pre style="margin: 10px 0 0 0; padding: 10px; background: white; border: 1px solid #ddd; overflow-x: auto; font-size: 12px;">${getHexDump(data, 256)}</pre>
+            </div>
+          </div>
+        `;
+      }
+
+      // Main Viewer constructor
+      window.hwpjs = {
+        Viewer: function(container, data) {
+          console.log('[HWP] Simple HWP Viewer initialized');
+          console.log('[HWP] Data size:', data ? data.length : 0);
+
+          if (!data || data.length === 0) {
+            container.innerHTML = '<p style="color: red;">No data provided</p>';
+            return this;
+          }
+
+          try {
+            var text = extractText(data);
+
+            container.innerHTML = `
+            <div style="background: white; padding: 40px; max-width: 800px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+              <div style="background: #0078d4; color: white; padding: 15px; margin: -40px -40px 20px -40px;">
+                <h2 style="margin: 0; font-size: 18px;">한글 문서 (HWP)</h2>
+              </div>
+              <div style="background: #f8f9fa; padding: 20px; border-left: 4px solid #0078d4; margin-bottom: 20px;">
+                <p style="margin: 0; color: #333;"><strong>파일 크기:</strong> ${Math.round(data.length / 1024)} KB</p>
+                <p style="margin: 5px 0 0 0; color: #333;"><strong>데이터:</strong> ${data.length} bytes</p>
+              </div>
+              <div style="background: white; padding: 30px; border: 1px solid #ddd; min-height: 400px; line-height: 1.8;">
+                <h3 style="color: #0078d4; margin-top: 0;">문서 내용</h3>
+                ${text ? formatText(text) : showFileStructure(data)}
+              </div>
+              <div style="background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin-top: 20px;">
+                <p style="margin: 0; color: #856404; font-size: 14px;">
+                  <strong>참고:</strong> 이것은 기본적인 HWP 파일 뷰어입니다.
+                  완전한 렌더링을 위해서는 추가 라이브러리가 필요합니다.
+                </p>
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          console.error('[HWP] Error parsing file:', error);
+          container.innerHTML = `
+            <div style="padding: 40px;">
+              <h3 style="color: #d32f2f;">HWP 파일 분석 오류</h3>
+              <p style="color: #666;">오류: ${error.message}</p>
+              <div style="background: #f5f5f5; padding: 20px; margin-top: 20px;">
+                <p><strong>파일 정보:</strong></p>
+                <ul>
+                  <li>크기: ${Math.round(data.length / 1024)} KB</li>
+                  <li>바이트: ${data.length}</li>
+                  <li>첫 4바이트: ${getFileSignature(data)}</li>
+                </ul>
+              </div>
+            </div>
+          `;
+        }
+
+        return this;
+      }
+    };
+
+    console.log('[HWP] Simple HWP viewer loaded');
+    })();
+
+  </script>
+
+  <!-- HWP.js fallback placeholder -->
+  <script>
+    // Fallback placeholder if CDN load fails
+    if (typeof window.hwpjs === 'undefined') {
+      window.hwpjs = {
+        Viewer: function(container, data) {
+          console.log('[HWP] Fallback Placeholder Viewer initialized');
+          console.log('[HWP] Container:', container);
+          console.log('[HWP] Data size:', data ? data.length : 0);
+
+          // Create a placeholder UI with scrollable content
+          container.innerHTML = `
           <div style="padding: 40px; background: white; border: 2px dashed #ccc; border-radius: 8px; text-align: center; min-height: 1200px;">
             <h2 style="color: #0078d4; margin-bottom: 20px;">HWP 뷰어</h2>
             <div style="background: #f0f0f0; padding: 30px; border-radius: 6px; margin: 20px 0;">
@@ -248,11 +530,12 @@
           </div>
         `;
 
-        return this;
-      }
-    };
+          return this;
+        }
+      };
 
-    console.log('[HWP] Placeholder library initialized');
+      console.log('[HWP] Fallback placeholder initialized');
+    }
   </script>
 
   ${preBootJs}

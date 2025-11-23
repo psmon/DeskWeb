@@ -185,7 +185,7 @@ qx.Class.define("deskweb.ui.FileExplorer", {
         var file = files[i];
         var reader = new FileReader();
 
-        reader.onload = function(fileName) {
+        reader.onload = function(fileName, fileType) {
           return function(e) {
             var content = e.target.result;
 
@@ -196,8 +196,20 @@ qx.Class.define("deskweb.ui.FileExplorer", {
             }
             filePath += fileName;
 
-            // Write file to storage
-            this.__storage.writeFile(filePath, content);
+            // For binary files, convert ArrayBuffer to base64
+            var isBinary = this._isBinaryFile(fileName);
+            if (isBinary) {
+              var uint8Array = new Uint8Array(content);
+              var binaryString = '';
+              for (var i = 0; i < uint8Array.length; i++) {
+                binaryString += String.fromCharCode(uint8Array[i]);
+              }
+              content = btoa(binaryString);
+              console.log("[FileExplorer] Binary file detected, stored as base64:", fileName, "size:", content.length);
+            }
+
+            // Write file to storage with binary flag
+            this.__storage.writeFile(filePath, content, isBinary);
             uploadedCount++;
 
             console.log("[FileExplorer] Uploaded file:", filePath);
@@ -208,11 +220,30 @@ qx.Class.define("deskweb.ui.FileExplorer", {
               this._showUploadNotification(totalFiles);
             }
           }.bind(this);
-        }.bind(this)(file.name);
+        }.bind(this)(file.name, file.type);
 
-        // Read file as text
-        reader.readAsText(file);
+        // Read as binary for binary files, text for text files
+        if (this._isBinaryFile(file.name)) {
+          reader.readAsArrayBuffer(file);
+        } else {
+          reader.readAsText(file);
+        }
       }
+    },
+
+    /**
+     * Check if file is binary
+     */
+    _isBinaryFile: function(fileName) {
+      var ext = fileName.split('.').pop().toLowerCase();
+      var binaryExtensions = [
+        'hwp', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf',
+        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'ico', 'svg',
+        'mp3', 'mp4', 'avi', 'mov', 'wmv', 'flv',
+        'zip', 'rar', '7z', 'tar', 'gz',
+        'exe', 'dll', 'so', 'bin'
+      ];
+      return binaryExtensions.indexOf(ext) !== -1;
     },
 
     /**

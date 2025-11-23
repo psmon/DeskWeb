@@ -123,7 +123,7 @@ qx.Class.define("deskweb.util.StorageManager", {
     /**
      * Write file to storage
      */
-    writeFile: function(path, content) {
+    writeFile: function(path, content, isBinary) {
       var key = this._toStorageKey(path);
 
       try {
@@ -136,11 +136,12 @@ qx.Class.define("deskweb.util.StorageManager", {
           size: content.length,
           created: Date.now(),
           modified: Date.now(),
-          type: this._getFileType(path)
+          type: this._getFileType(path),
+          isBinary: isBinary || false
         };
         localStorage.setItem(key + "::meta", JSON.stringify(metadata));
 
-        console.log("[StorageManager] File written:", path);
+        console.log("[StorageManager] File written:", path, "isBinary:", isBinary);
         return true;
       } catch (e) {
         console.error("[StorageManager] Error writing file:", path, e);
