@@ -514,6 +514,9 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         var docInfo = this._parseDocInfo(cfb, fileHeader);
         console.log("[HWPViewerWindow] DocInfo parsed");
 
+        // Store docInfo for later use
+        this.__docInfo = docInfo;
+
         // Parse sections
         var sections = this._parseSections(cfb, fileHeader);
         console.log("[HWPViewerWindow] Parsed", sections.length, "sections");
@@ -591,8 +594,37 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       var records = this._parseRecords(data, fileHeader.flags.compressed);
       console.log("[HWPViewerWindow] DocInfo records:", records.length);
 
+      // Extract paragraph shapes and character shapes
+      var paraShapes = [];
+      var charShapes = [];
+
+      // Tag IDs (HWPTAG_BEGIN = 0x10)
+      // HWPTAG_PARA_SHAPE = 0x10 + 9 = 0x19 (25)
+      // HWPTAG_CHAR_SHAPE = 0x10 + 5 = 0x15 (21)
+      for (var i = 0; i < records.length; i++) {
+        var record = records[i];
+
+        if (record.tagId === 0x19 || record.tagId === 25) {
+          // Parse PARA_SHAPE
+          var paraShape = this._parseParaShape(record.data);
+          if (paraShape) {
+            paraShapes.push(paraShape);
+          }
+        } else if (record.tagId === 0x15 || record.tagId === 21) {
+          // Parse CHAR_SHAPE
+          var charShape = this._parseCharShape(record.data);
+          if (charShape) {
+            charShapes.push(charShape);
+          }
+        }
+      }
+
+      console.log("[HWPViewerWindow] Parsed", paraShapes.length, "paragraph shapes and", charShapes.length, "character shapes");
+
       return {
-        records: records
+        records: records,
+        paraShapes: paraShapes,
+        charShapes: charShapes
       };
     },
 
@@ -733,14 +765,24 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       var paraHeaderCount = 0;
       var paraTextCount = 0;
       var tableCount = 0;
+      var skipUntilIndex = -1; // Track which records to skip (already processed by table)
 
       for (var i = 0; i < records.length; i++) {
+        // Skip records that were already processed by a table
+        if (i <= skipUntilIndex) {
+          // But log what we're skipping for debugging
+          if (i === skipUntilIndex) {
+            console.log("[HWPViewerWindow] Finished skipping table records up to index", skipUntilIndex);
+          }
+          continue;
+        }
+
         var record = records[i];
 
         // Check for CTRL_HEADER (0x37 = 55) which precedes tables
         // HWPTAG_CTRL_HEADER = HWPTAG_BEGIN + 55 = 16 + 55 = 71 (0x47)
         if (record.tagId === 0x47 || record.tagId === 71) {
-          console.log("[HWPViewerWindow] Found CTRL_HEADER (0x47/71), checking for table...");
+          console.log("[HWPViewerWindow] Found CTRL_HEADER (0x47/71) at index", i, ", checking for table...");
 
           // Check if next record is TABLE
           if (i + 1 < records.length) {
@@ -759,57 +801,168 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                   table: table
                 });
                 console.log("[HWPViewerWindow] Added table:", table.rows, "rows x", table.cols, "cols");
+
+                // If table parsing found text that belongs outside, add it as a paragraph
+                if (table.outsideText && table.outsideText.trim().length > 0) {
+                  paragraphs.push({
+                    type: 'paragraph',
+                    text: table.outsideText.trim(),
+                    recordIndex: table.outsideTextIndex || -1,
+                    afterSkipIndex: table.lastRecordIndex || -1,
+                    wasSkipped: false
+                  });
+                  console.log("[HWPViewerWindow] Added outside text as paragraph:", table.outsideText.trim());
+                }
+
+                // Skip all records that belong to this table, INCLUDING the TABLE record itself
+                if (table.lastRecordIndex) {
+                  skipUntilIndex = table.lastRecordIndex;
+                  console.log("[HWPViewerWindow] Skipping records from", i, "to", skipUntilIndex);
+                } else {
+                  // If no lastRecordIndex, at least skip the TABLE record
+                  skipUntilIndex = i + 1;
+                  console.log("[HWPViewerWindow] No lastRecordIndex, skipping to", skipUntilIndex);
+                }
               }
+            } else {
+              // CTRL_HEADER for something else (not a table)
+              console.log("[HWPViewerWindow] CTRL_HEADER not followed by TABLE, skipping this CTRL_HEADER");
             }
           }
         }
         // HWPTAG_TABLE standalone (might occur without CTRL_HEADER)
+        // But skip if previous record was CTRL_HEADER to avoid duplicates
         else if (record.tagId === 0x4D || record.tagId === 77) {
-          tableCount++;
-          console.log("[HWPViewerWindow] Found standalone TABLE record (0x4D/77), size:", record.data.length);
+          // Check if previous record was CTRL_HEADER
+          var prevWasCtrlHeader = (i > 0 && (records[i-1].tagId === 0x47 || records[i-1].tagId === 71));
 
-          var table = this._parseTable(record.data, records, i);
-          if (table) {
-            paragraphs.push({
-              type: 'table',
-              table: table
-            });
-            console.log("[HWPViewerWindow] Added table:", table.rows, "rows x", table.cols, "cols");
-          }
-        }
-        // PARA_HEADER (0x50 = 80)
-        else if (record.tagId === 0x50) {
-          paraHeaderCount++;
-          var text = '';
+          if (!prevWasCtrlHeader) {
+            tableCount++;
+            console.log("[HWPViewerWindow] Found standalone TABLE record (0x4D/77), size:", record.data.length);
 
-          // Check if next record is PARA_TEXT
-          if (i + 1 < records.length && records[i + 1].tagId === 0x51) {
-            text = this._parseParaText(records[i + 1].data);
-            console.log("[HWPViewerWindow] Found PARA_HEADER + PARA_TEXT pair, text length:", text.length);
+            var table = this._parseTable(record.data, records, i);
+            if (table) {
+              paragraphs.push({
+                type: 'table',
+                table: table
+              });
+              console.log("[HWPViewerWindow] Added table:", table.rows, "rows x", table.cols, "cols");
+
+              // Skip all records that belong to this table
+              if (table.lastRecordIndex) {
+                skipUntilIndex = table.lastRecordIndex;
+                console.log("[HWPViewerWindow] Skipping records until index", skipUntilIndex);
+              }
+            }
           } else {
-            console.log("[HWPViewerWindow] Found PARA_HEADER without PARA_TEXT");
-          }
-
-          if (text.trim().length > 0) {
-            paragraphs.push({
-              type: 'paragraph',
-              text: text
-            });
-            console.log("[HWPViewerWindow] Added paragraph:", text.substring(0, 50) + "...");
+            console.log("[HWPViewerWindow] Skipping duplicate TABLE after CTRL_HEADER");
           }
         }
-        // PARA_TEXT (0x51 = 81) standalone
-        else if (record.tagId === 0x51) {
-          paraTextCount++;
-          var text = this._parseParaText(record.data);
+        // PARA_HEADER (0x42 = 66, which is HWPTAG_BEGIN + 50)
+        else if (record.tagId === 0x42 || record.tagId === 66) {
+          paraHeaderCount++;
+
+          console.log("[PARA] ========================================");
+          console.log("[PARA] Found PARA_HEADER at index", i);
+          console.log("[PARA] Current skipUntilIndex:", skipUntilIndex);
+          console.log("[PARA] This PARA is", i <= skipUntilIndex ? "INSIDE TABLE (should be skipped)" : "OUTSIDE TABLE (will be processed)");
+
+          // Parse paragraph header to get style IDs
+          var paraHeader = this._parseParaHeader(record.data);
+          var text = '';
+          var charShapeIds = [];
+
+          // Look ahead for PARA_TEXT (0x43) and PARA_CHAR_SHAPE (0x44)
+          // But stop at next PARA_HEADER to avoid reading text that belongs to next paragraph
+          for (var j = i + 1; j < Math.min(i + 5, records.length); j++) {
+            var nextRec = records[j];
+
+            // Stop if we hit another PARA_HEADER - that's a different paragraph
+            if (nextRec.tagId === 0x42 || nextRec.tagId === 66) {
+              console.log("[PARA] Stopping look-ahead at index", j, "- found next PARA_HEADER");
+              break;
+            }
+
+            if (nextRec.tagId === 0x43 || nextRec.tagId === 67) {
+              // PARA_TEXT - only use it if we haven't found text yet
+              if (text.length === 0) {
+                text = this._parseParaText(nextRec.data);
+                console.log("[PARA] Found PARA_TEXT at index", j, "- text length:", text.length);
+                console.log("[PARA] Text preview (first 100 chars):", text.substring(0, 100));
+              } else {
+                console.log("[PARA] Skipping duplicate PARA_TEXT at index", j, "- already have text");
+              }
+            } else if (nextRec.tagId === 0x44 || nextRec.tagId === 68) {
+              // PARA_CHAR_SHAPE - extract character shape IDs
+              charShapeIds = this._parseParaCharShape(nextRec.data);
+              console.log("[PARA] Found PARA_CHAR_SHAPE at index", j);
+            }
+          }
 
           if (text.trim().length > 0) {
-            paragraphs.push({
-              type: 'paragraph',
-              text: text
-            });
-            console.log("[HWPViewerWindow] Found standalone PARA_TEXT, length:", text.length, "text:", text.substring(0, 50) + "...");
+            // Filter out garbage control characters that appear as "氠瑢" or similar
+            // These are UTF-16LE decoded control bytes that should be skipped
+            var cleanText = text.trim();
+
+            // Check if text contains mostly garbage (non-printable or invalid characters)
+            var printableCount = 0;
+            var totalChars = cleanText.length;
+
+            for (var k = 0; k < totalChars; k++) {
+              var code = cleanText.charCodeAt(k);
+              if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul syllables
+                  (code >= 0x20 && code <= 0x7E) ||     // ASCII printable
+                  (code >= 0x3000 && code <= 0x9FFF)) { // CJK
+                printableCount++;
+              }
+            }
+            var printableRatio = totalChars > 0 ? printableCount / totalChars : 0;
+
+            // Skip garbage text:
+            // 1. Mostly garbage (less than 30% printable)
+            // 2. OR very short non-Korean text (less than 5 chars and no Hangul)
+            var hasKorean = false;
+            for (var k = 0; k < totalChars; k++) {
+              var code = cleanText.charCodeAt(k);
+              if (code >= 0xAC00 && code <= 0xD7AF) {
+                hasKorean = true;
+                break;
+              }
+            }
+
+            var shouldSkip = false;
+            var skipReason = "";
+
+            if (printableRatio < 0.3) {
+              shouldSkip = true;
+              skipReason = "low printable ratio: " + printableRatio.toFixed(2);
+            } else if (totalChars <= 5 && !hasKorean) {
+              shouldSkip = true;
+              skipReason = "short non-Korean text (" + totalChars + " chars, no Hangul)";
+            }
+
+            if (shouldSkip) {
+              console.log("[PARA] ⚠️ SKIPPING garbage paragraph (" + skipReason + "):", cleanText,
+                         "char codes:", Array.from(cleanText).map(c => '0x' + c.charCodeAt(0).toString(16)).join(' '));
+            } else {
+              console.log("[PARA] ✅ ADDING paragraph to output at position", paragraphs.length);
+              console.log("[PARA] Full text:", cleanText);
+              paragraphs.push({
+                type: 'paragraph',
+                text: cleanText,
+                paraShapeId: paraHeader ? paraHeader.paraShapeId : 0,
+                charShapeIds: charShapeIds,
+                _debugInfo: {
+                  recordIndex: i,
+                  afterSkipIndex: skipUntilIndex,
+                  wasSkipped: i <= skipUntilIndex
+                }
+              });
+            }
+          } else {
+            console.log("[PARA] ⚠️ SKIPPING paragraph (empty text)");
           }
+          console.log("[PARA] ========================================");
         }
       }
 
@@ -993,8 +1146,95 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
      * Parse paragraph text
      */
     _parseParaText: function(data) {
-      var text = new TextDecoder('utf-16le').decode(data);
-      return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+      try {
+        // PARA_TEXT should be UTF-16LE encoded
+        var text = new TextDecoder('utf-16le').decode(data);
+
+        // Remove control characters
+        var cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+        // Check if text looks valid (mostly printable characters)
+        var printableCount = 0;
+        var totalCount = cleaned.length;
+
+        for (var i = 0; i < cleaned.length; i++) {
+          var code = cleaned.charCodeAt(i);
+          // Check for valid Korean (Hangul), ASCII, or common Unicode
+          if ((code >= 0xAC00 && code <= 0xD7AF) || // Hangul syllables
+              (code >= 0x20 && code <= 0x7E) ||     // ASCII printable
+              (code >= 0x3000 && code <= 0x9FFF) || // CJK
+              code === 0x20 || code === 0x0A) {     // Space, newline
+            printableCount++;
+          }
+        }
+
+        var ratio = totalCount > 0 ? printableCount / totalCount : 0;
+
+        if (ratio < 0.5 && totalCount > 0) {
+          console.warn("[HWPViewerWindow] Low printable ratio:", ratio.toFixed(2), "for text:", cleaned.substring(0, 50));
+          console.warn("[HWPViewerWindow] Data length:", data.length, "First 20 bytes:",
+                       Array.from(data.slice(0, 20)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+        }
+
+        return cleaned;
+      } catch (e) {
+        console.error("[HWPViewerWindow] Error decoding PARA_TEXT:", e);
+        console.error("[HWPViewerWindow] Data length:", data.length, "First bytes:",
+                     Array.from(data.slice(0, Math.min(20, data.length))).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+        return '';
+      }
+    },
+
+    /**
+     * Parse PARA_HEADER to extract style IDs
+     */
+    _parseParaHeader: function(data) {
+      try {
+        if (data.length < 22) {
+          return null;
+        }
+
+        var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        var offset = 0;
+
+        // Skip some fields
+        offset += 4; // nchars
+        offset += 4; // control mask
+        var paraShapeId = view.getUint16(offset, true); offset += 2;
+
+        return {
+          paraShapeId: paraShapeId
+        };
+      } catch (e) {
+        console.error("[HWPViewerWindow] Error parsing PARA_HEADER:", e);
+        return null;
+      }
+    },
+
+    /**
+     * Parse PARA_CHAR_SHAPE to extract character shape IDs
+     */
+    _parseParaCharShape: function(data) {
+      try {
+        // PARA_CHAR_SHAPE contains pairs of (position, charShapeId)
+        // Each pair is 8 bytes: UINT32 position + UINT32 charShapeId
+        var charShapeIds = [];
+        var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+        for (var offset = 0; offset + 8 <= data.length; offset += 8) {
+          var position = view.getUint32(offset, true);
+          var charShapeId = view.getUint32(offset + 4, true);
+          charShapeIds.push({
+            position: position,
+            charShapeId: charShapeId
+          });
+        }
+
+        return charShapeIds;
+      } catch (e) {
+        console.error("[HWPViewerWindow] Error parsing PARA_CHAR_SHAPE:", e);
+        return [];
+      }
     },
 
     /**
@@ -1037,7 +1277,18 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
             // Sanity check: rows and cols should be reasonable (1-100)
             if (rows >= 1 && rows <= 100 && cols >= 1 && cols <= 100) {
-              console.log("[HWPViewerWindow] Found table at offset", tryOffset, ":", rows, "rows x", cols, "cols");
+              console.log("[TABLE] ========================================");
+              console.log("[TABLE] Found table at offset", tryOffset, ":", rows, "rows x", cols, "cols");
+              console.log("[TABLE] Table record index:", currentIndex);
+              console.log("[TABLE] Will scan records starting from index", currentIndex + 1);
+
+              // Parse cell information after table header
+              // According to spec, cell list is NOT in the table record itself
+              // but in LIST_HEADER records that follow
+              // So we'll collect cells from the records, not from this data
+
+              var cellAttributes = [];
+              console.log("[TABLE] Will extract cell info from LIST_HEADER records");
 
               var table = {
                 rows: rows,
@@ -1046,57 +1297,282 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 cells: []
               };
 
-              // Try to extract cell text from surrounding records
-              // Tag IDs (HWPTAG_BEGIN = 0x10):
-              // PARA_HEADER = 0x10 + 50 = 0x42 (66)
-              // PARA_TEXT = 0x10 + 51 = 0x43 (67)
-              // PARA_CHAR_SHAPE = 0x10 + 52 = 0x44 (68)
-              // PARA_LINE_SEG = 0x10 + 53 = 0x45 (69)
-              // CTRL_HEADER = 0x10 + 55 = 0x47 (71)
-              // LIST_HEADER = 0x10 + 56 = 0x48 (72)
-              var foundListHeader = false;
-              for (var j = currentIndex + 1; j < Math.min(currentIndex + 200, allRecords.length); j++) {
+              // Extract cells from LIST_HEADER records
+              // Each cell is a LIST_HEADER followed by paragraph(s)
+              var cellCount = 0;
+              var currentCell = null;
+              var listHeaderIndices = []; // Track LIST_HEADER positions
+              var lastProcessedIndex = currentIndex; // Track last index we processed
+              var totalGridPositions = rows * cols; // Total grid positions
+              var gridPositionsFilled = 0; // Track how many grid positions are filled (including merged cells)
+
+              for (var j = currentIndex + 1; j < Math.min(currentIndex + 300, allRecords.length); j++) {
                 var rec = allRecords[j];
 
-                // LIST_HEADER (0x48 = 72)
+                // LIST_HEADER (0x48 = 72) marks the start of a cell
                 if (rec.tagId === 0x48 || rec.tagId === 72) {
-                  foundListHeader = true;
-                  console.log("[HWPViewerWindow] Found LIST_HEADER at index", j);
-                }
+                  // Save previous cell if exists
+                  if (currentCell !== null) {
+                    // Calculate grid positions this cell occupies
+                    var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
+                    gridPositionsFilled += cellGridSize;
+                    console.log("[TABLE] Cell", cellCount, "occupies", cellGridSize, "grid positions (" +
+                               currentCell.rowSpan + "x" + currentCell.colSpan + "), total filled:", gridPositionsFilled, "/", totalGridPositions);
+                    table.cells.push(currentCell);
+                  }
 
-                // PARA_HEADER (0x42 = 66) - marks start of a paragraph
-                if (rec.tagId === 0x42 || rec.tagId === 66) {
-                  console.log("[HWPViewerWindow] Found PARA_HEADER at index", j);
-                }
+                  // Check if we've filled all grid positions
+                  if (gridPositionsFilled >= totalGridPositions) {
+                    console.log("[TABLE] ✅ All grid positions filled (", gridPositionsFilled, ">=", totalGridPositions, "), stopping at index", j);
+                    table.lastRecordIndex = lastProcessedIndex;
+                    break;
+                  }
 
-                // PARA_TEXT (0x43 = 67) - contains the actual text
-                if (rec.tagId === 0x43 || rec.tagId === 67) {
+                  console.log("[TABLE] Found LIST_HEADER (cell", cellCount + 1, ") at index", j);
+
+                  // Parse cell attributes from LIST_HEADER data
+                  // According to HWP spec (표 80), cell attributes structure:
+                  // UINT16 2 Column address
+                  // UINT16 2 Row address
+                  // UINT16 2 colspan (열의 병합 개수)
+                  // UINT16 2 rowspan (행의 병합 개수)
+                  // ... (more fields up to 26 bytes total)
+
+                  var cellCol = cellCount % cols;
+                  var cellRow = Math.floor(cellCount / cols);
+                  var colSpan = 1;
+                  var rowSpan = 1;
+
+                  // Try to parse cell attributes if LIST_HEADER has enough data
+                  if (rec.data && rec.data.length >= 26) {
+                    try {
+                      var cellView = new DataView(rec.data.buffer, rec.data.byteOffset, rec.data.byteLength);
+
+                      // The cell attributes might not be at offset 0 in LIST_HEADER
+                      // LIST_HEADER contains header info first, then cell attributes
+                      // Let's try to find the cell attributes by looking for reasonable values
+
+                      // Try different offsets to find cell attributes
+                      var foundCellAttr = false;
+
+                      // Calculate expected sequential position for validation
+                      var expectedRow = Math.floor(cellCount / cols);
+                      var expectedCol = cellCount % cols;
+
+                      for (var attrOffset = 0; attrOffset < Math.min(100, rec.data.length - 26); attrOffset += 2) {
+                        var tryCol = cellView.getUint16(attrOffset, true);
+                        var tryRow = cellView.getUint16(attrOffset + 2, true);
+                        var tryColSpan = cellView.getUint16(attrOffset + 4, true);
+                        var tryRowSpan = cellView.getUint16(attrOffset + 6, true);
+
+                        // Check if values are reasonable
+                        if (tryCol < cols && tryRow < rows &&
+                            tryColSpan >= 1 && tryColSpan <= cols &&
+                            tryRowSpan >= 1 && tryRowSpan <= rows) {
+
+                          // Additional validation: check if this would overfill the grid
+                          var cellSize = tryColSpan * tryRowSpan;
+                          var projectedTotal = gridPositionsFilled + cellSize;
+
+                          // If this cell would overfill, skip it and try next offset
+                          if (projectedTotal > totalGridPositions) {
+                            console.log("[TABLE] Rejecting cell attributes at offset", attrOffset,
+                                       "- would overfill grid:", projectedTotal, ">", totalGridPositions);
+                            continue;
+                          }
+
+                          // Prefer attributes that are close to sequential position
+                          // If found attributes differ significantly from sequential position, be suspicious
+                          var rowDiff = Math.abs(tryRow - expectedRow);
+                          var colDiff = Math.abs(tryCol - expectedCol);
+
+                          // If position differs by more than 1 row/col from expected, use sequential instead
+                          // This helps avoid parsing garbage data as cell attributes
+                          if (rowDiff > 1 || colDiff > 1) {
+                            console.log("[TABLE] Found cell attributes at offset", attrOffset, "but position differs too much from expected");
+                            console.log("[TABLE]   Found: row=" + tryRow + " col=" + tryCol + ", Expected: row=" + expectedRow + " col=" + expectedCol);
+                            console.log("[TABLE]   Using sequential position instead");
+                            cellRow = expectedRow;
+                            cellCol = expectedCol;
+                            colSpan = 1;
+                            rowSpan = 1;
+                            foundCellAttr = true;
+                            break;
+                          }
+
+                          cellCol = tryCol;
+                          cellRow = tryRow;
+                          colSpan = tryColSpan;
+                          rowSpan = tryRowSpan;
+                          foundCellAttr = true;
+                          console.log("[HWPViewerWindow] Found cell attributes at offset", attrOffset, ":",
+                                      "col=" + cellCol, "row=" + cellRow, "colspan=" + colSpan, "rowspan=" + rowSpan);
+                          break;
+                        }
+                      }
+
+                      if (!foundCellAttr) {
+                        // Fallback to sequential positioning
+                        cellRow = Math.floor(cellCount / cols);
+                        cellCol = cellCount % cols;
+                        console.log("[HWPViewerWindow] Could not parse cell attributes, using sequential position:",
+                                    "row=" + cellRow, "col=" + cellCol);
+                      }
+                    } catch (e) {
+                      console.log("[HWPViewerWindow] Error parsing cell attributes:", e);
+                      cellRow = Math.floor(cellCount / cols);
+                      cellCol = cellCount % cols;
+                    }
+                  } else {
+                    // Fallback to sequential positioning
+                    cellRow = Math.floor(cellCount / cols);
+                    cellCol = cellCount % cols;
+                  }
+
+                  currentCell = {
+                    row: cellRow,
+                    col: cellCol,
+                    colSpan: colSpan,
+                    rowSpan: rowSpan,
+                    text: ''
+                  };
+
+                  // IMPORTANT: Update gridPositionsFilled IMMEDIATELY when creating new cell
+                  // This prevents collecting text that belongs outside the table
+                  var newCellGridSize = colSpan * rowSpan;
+                  var projectedFilled = gridPositionsFilled + newCellGridSize;
+
+                  console.log("[TABLE] Cell", cellCount + 1, "will occupy", newCellGridSize,
+                             "positions, projected total:", projectedFilled, "/", totalGridPositions);
+
+                  // If this cell would overfill the grid, we've reached the end
+                  if (projectedFilled > totalGridPositions) {
+                    console.warn("[TABLE] ⚠️ Cell would overfill grid! Stopping table parsing.");
+                    console.warn("[TABLE] Current:", gridPositionsFilled, "+ New cell:", newCellGridSize,
+                                "= ", projectedFilled, " > ", totalGridPositions);
+                    break;
+                  }
+
+                  cellCount++;
+                  listHeaderIndices.push(j);
+                  lastProcessedIndex = j; // Update last processed index
+                }
+                // PARA_HEADER (0x42 = 66) - this might be inside a cell
+                else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell !== null) {
+                  // Paragraph header inside table cell, just track it
+                  lastProcessedIndex = j;
+                }
+                // PARA_TEXT (0x43 = 67) - add text to current cell
+                else if ((rec.tagId === 0x43 || rec.tagId === 67) && currentCell !== null) {
+                  // Calculate what the grid will be after adding this cell
+                  var currentCellSize = currentCell.colSpan * currentCell.rowSpan;
+                  var projectedFilledAfterThisCell = gridPositionsFilled + currentCellSize;
+
+                  // Check if adding this cell would complete or exceed the table
+                  // If so, ANY text (including first text) belongs outside
+                  if (projectedFilledAfterThisCell >= totalGridPositions) {
+                    var outsideText = this._parseParaText(rec.data);
+                    console.warn("[TABLE] ⚠️ Table will be FULL after current cell! PARA_TEXT at index", j, "is OUTSIDE:", outsideText);
+                    console.warn("[TABLE] Projected fill:", projectedFilledAfterThisCell, ">=", totalGridPositions);
+                    console.warn("[TABLE] This text belongs OUTSIDE the table, current cell should remain empty.");
+                    // Save current cell (empty)
+                    if (currentCell !== null) {
+                      var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
+                      gridPositionsFilled += cellGridSize;
+                      console.log("[TABLE] Saving last cell (cell", cellCount, ") with text:", currentCell.text);
+                      console.log("[TABLE] Last cell occupies", cellGridSize, "grid positions, total filled:", gridPositionsFilled, "/", totalGridPositions);
+                      table.cells.push(currentCell);
+                      currentCell = null;
+                    }
+                    // Store the outside text in the table object
+                    table.outsideText = outsideText;
+                    table.outsideTextIndex = j;
+                    // Set lastRecordIndex to this PARA_TEXT index (will be skipped by main loop)
+                    table.lastRecordIndex = j;
+                    console.warn("[TABLE] Stored outside text and set lastRecordIndex to", j);
+                    break;
+                  }
+
                   var cellText = this._parseParaText(rec.data);
-                  if (cellText.trim().length > 0) {
-                    table.cells.push(cellText.trim());
-                    console.log("[HWPViewerWindow] Added cell text from PARA_TEXT:", cellText.substring(0, 30) + "...");
+                  console.log("[TABLE-CELL] Found PARA_TEXT at index", j, "for cell", cellCount, ":", cellText);
+                  if (currentCell.text.length > 0) {
+                    currentCell.text += '\n';
+                  }
+                  currentCell.text += cellText.trim();
+                  lastProcessedIndex = j; // Update last processed index
+                }
+                // PARA_TEXT OUTSIDE of cell - this should NOT happen during table parsing!
+                else if ((rec.tagId === 0x43 || rec.tagId === 67) && currentCell === null) {
+                  var outsideText = this._parseParaText(rec.data);
+                  console.warn("[TABLE] ⚠️ WARNING: Found PARA_TEXT OUTSIDE cell at index", j, ":", outsideText);
+                  console.warn("[TABLE] This text should NOT be in the table! Table should have ended before this.");
+                  console.warn("[TABLE] Current cellCount:", cellCount, "Expected cells:", rows * cols);
+                  // This indicates table boundary detection failed - stop here
+                  if (cellCount > 0) {
+                    table.lastRecordIndex = lastProcessedIndex;
+                    break;
                   }
                 }
-
-                // Also try 0x1c records (ViewText) which might contain cell text
-                if (rec.tagId === 0x1c) {
-                  var viewText = this._parseViewTextRecord(rec.data);
-                  if (viewText && viewText.trim().length > 0) {
-                    table.cells.push(viewText.trim());
-                    console.log("[HWPViewerWindow] Added cell text from ViewText:", viewText.substring(0, 30) + "...");
+                // PARA_CHAR_SHAPE (0x44 = 68) - character shape info
+                else if ((rec.tagId === 0x44 || rec.tagId === 68) && currentCell !== null) {
+                  // Just track it, we're still inside table
+                  lastProcessedIndex = j;
+                }
+                // PARA_LINE_SEG (0x45 = 69) - line segment info
+                else if ((rec.tagId === 0x45 || rec.tagId === 69) && currentCell !== null) {
+                  // Just track it, we're still inside table
+                  lastProcessedIndex = j;
+                }
+                // Stop when we find another major structure OUTSIDE of a cell
+                else if ((rec.tagId === 0x47 || rec.tagId === 71) || (rec.tagId === 0x4D || rec.tagId === 77)) {
+                  if (j > currentIndex + 5) {
+                    console.log("[TABLE] Stopping cell search at index", j, "- found tag 0x" + rec.tagId.toString(16));
+                    // Save last cell
+                    if (currentCell !== null) {
+                      table.cells.push(currentCell);
+                    }
+                    table.lastRecordIndex = lastProcessedIndex;
+                    break;
                   }
                 }
-
-                // Stop when we find another major structure (CTRL_HEADER, TABLE)
-                if ((rec.tagId === 0x47 || rec.tagId === 71) || (rec.tagId === 0x4D || rec.tagId === 77)) {
-                  if (j > currentIndex + 5) { // Only break if we've searched a bit
-                    console.log("[HWPViewerWindow] Stopping cell search at tag 0x" + rec.tagId.toString(16));
+                // PARA_HEADER outside of cell context might indicate end of table
+                else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell === null) {
+                  if (cellCount > 0) {
+                    console.log("[TABLE] Found PARA_HEADER outside cell at index", j, "- table ended");
+                    console.log("[TABLE] IMPORTANT: Next paragraph at index", j, "should NOT be included in table");
+                    table.lastRecordIndex = lastProcessedIndex;
                     break;
                   }
                 }
               }
 
-              console.log("[HWPViewerWindow] Extracted", table.cells.length, "cell texts (found LIST_HEADER:", foundListHeader + ")");
+              // Save last cell if loop ended without finding another structure
+              if (currentCell !== null && table.cells.length < cellCount) {
+                console.log("[TABLE] Saving last cell (cell", cellCount, ") with text:", currentCell.text);
+                var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
+                gridPositionsFilled += cellGridSize;
+                console.log("[TABLE] Last cell occupies", cellGridSize, "grid positions, total filled:", gridPositionsFilled, "/", totalGridPositions);
+                table.cells.push(currentCell);
+              }
+
+              // Ensure lastRecordIndex is set
+              if (!table.lastRecordIndex) {
+                table.lastRecordIndex = lastProcessedIndex;
+              }
+
+              console.log("[TABLE] Extracted", table.cells.length, "cells for", rows, "x", cols, "table");
+              console.log("[TABLE] Last record index for this table:", table.lastRecordIndex);
+              console.log("[TABLE] Next records after index", table.lastRecordIndex, "will be processed as separate paragraphs");
+
+              // Log all cell contents for debugging
+              console.log("[TABLE] Cell contents summary:");
+              for (var debugIdx = 0; debugIdx < table.cells.length; debugIdx++) {
+                var debugCell = table.cells[debugIdx];
+                console.log("[TABLE]   Cell", debugIdx + 1, "(" + debugCell.row + "," + debugCell.col + "):",
+                           debugCell.text.substring(0, 50) + (debugCell.text.length > 50 ? "..." : ""));
+              }
+
+              console.log("[TABLE] ========================================");
 
               found = true;
               return table;
@@ -1282,6 +1758,9 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       sections.forEach(function(section, idx) {
         if (section.paragraphs.length === 0) return;
 
+        console.log("[RENDER] ========================================");
+        console.log("[RENDER] Rendering Section", idx + 1, "with", section.paragraphs.length, "items");
+
         // Section header
         var sectionHeader = document.createElement('div');
         sectionHeader.style.cssText = 'color: #666; font-size: 0.9rem; padding: 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 15px;';
@@ -1289,19 +1768,26 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         wrapper.appendChild(sectionHeader);
 
         // Paragraphs and tables
-        section.paragraphs.forEach(function(item) {
+        section.paragraphs.forEach(function(item, itemIdx) {
           if (item.type === 'table') {
             // Render table
+            console.log("[RENDER] Item", itemIdx, "- TABLE:", item.table.rows, "x", item.table.cols);
             var table = this._renderTable(item.table);
             wrapper.appendChild(table);
           } else {
-            // Render paragraph
-            var p = document.createElement('p');
-            p.style.cssText = 'margin: 0 0 12px 0; line-height: 1.8; text-align: justify;';
-            p.textContent = item.text || '';
+            // Render paragraph with styles
+            console.log("[RENDER] Item", itemIdx, "- PARAGRAPH:");
+            console.log("[RENDER]   Text:", item.text);
+            if (item._debugInfo) {
+              console.log("[RENDER]   Debug Info:", JSON.stringify(item._debugInfo));
+            }
+            var p = this._renderParagraph(item);
             wrapper.appendChild(p);
           }
         }, this);
+
+        console.log("[RENDER] Section", idx + 1, "rendering complete");
+        console.log("[RENDER] ========================================");
 
         // Page break
         if (idx < sections.length - 1) {
@@ -1319,28 +1805,149 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
     },
 
     /**
-     * Render table as HTML
+     * Render paragraph with styles
+     */
+    _renderParagraph: function(item) {
+      var p = document.createElement('p');
+      var styles = [];
+
+      // Get paragraph shape from DocInfo
+      var paraShape = null;
+      if (this.__docInfo && this.__docInfo.paraShapes && item.paraShapeId !== undefined) {
+        paraShape = this.__docInfo.paraShapes[item.paraShapeId];
+      }
+
+      // Apply paragraph styles
+      if (paraShape) {
+        // Alignment
+        if (paraShape.alignment) {
+          styles.push('text-align: ' + paraShape.alignment);
+        }
+
+        // Indentation (convert HWPUNIT to px, approximately 1 HWPUNIT = 0.01mm)
+        if (paraShape.indent) {
+          var indentPx = Math.round(paraShape.indent / 7200 * 25.4 / 0.254); // rough conversion
+          styles.push('text-indent: ' + indentPx + 'px');
+        }
+
+        // Spacing
+        if (paraShape.spacingTop) {
+          var spacingTopPx = Math.round(paraShape.spacingTop / 7200 * 25.4 / 0.254);
+          styles.push('margin-top: ' + spacingTopPx + 'px');
+        }
+        if (paraShape.spacingBottom) {
+          var spacingBottomPx = Math.round(paraShape.spacingBottom / 7200 * 25.4 / 0.254);
+          styles.push('margin-bottom: ' + spacingBottomPx + 'px');
+        }
+      } else {
+        // Default styles
+        styles.push('margin: 0 0 12px 0');
+        styles.push('text-align: left');
+      }
+
+      styles.push('line-height: 1.8');
+
+      // Get character shape - use first one if available
+      var charShape = null;
+      if (this.__docInfo && this.__docInfo.charShapes && item.charShapeIds && item.charShapeIds.length > 0) {
+        var firstCharShapeId = item.charShapeIds[0].charShapeId;
+        charShape = this.__docInfo.charShapes[firstCharShapeId];
+      }
+
+      // Apply character styles
+      if (charShape) {
+        if (charShape.bold) {
+          styles.push('font-weight: bold');
+        }
+        if (charShape.italic) {
+          styles.push('font-style: italic');
+        }
+        if (charShape.color) {
+          styles.push('color: ' + charShape.color);
+        }
+      }
+
+      p.style.cssText = styles.join('; ');
+      p.textContent = item.text || '';
+
+      return p;
+    },
+
+    /**
+     * Render table as HTML with colspan/rowspan support
      */
     _renderTable: function(tableData) {
       var table = document.createElement('table');
       table.style.cssText = 'border-collapse: collapse; width: 100%; margin: 20px 0; border: 1px solid #ddd;';
 
-      console.log("[HWPViewerWindow] Rendering table:", tableData.rows, "x", tableData.cols, "with", tableData.cells.length, "cells");
+      console.log("[RENDER-TABLE] ========================================");
+      console.log("[RENDER-TABLE] Rendering table:", tableData.rows, "x", tableData.cols, "with", tableData.cells.length, "cells");
+      console.log("[RENDER-TABLE] All cell contents:");
+      for (var debugIdx = 0; debugIdx < tableData.cells.length; debugIdx++) {
+        var debugCell = tableData.cells[debugIdx];
+        console.log("[RENDER-TABLE]   Cell", debugIdx + 1, "at (" + debugCell.row + "," + debugCell.col + ")",
+                   "span(" + debugCell.rowSpan + "x" + debugCell.colSpan + "):",
+                   debugCell.text || "(empty)");
+      }
 
-      var cellIndex = 0;
+      // Create a grid to track which positions are occupied by merged cells
+      var grid = [];
+      for (var i = 0; i < tableData.rows; i++) {
+        grid[i] = [];
+        for (var j = 0; j < tableData.cols; j++) {
+          grid[i][j] = null; // null = empty, can be filled
+        }
+      }
+
+      // First pass: place all cells in the grid according to their row/col position
+      for (var i = 0; i < tableData.cells.length; i++) {
+        var cellData = tableData.cells[i];
+        var row = cellData.row;
+        var col = cellData.col;
+        var rowSpan = cellData.rowSpan || 1;
+        var colSpan = cellData.colSpan || 1;
+
+        // Mark all grid positions occupied by this cell
+        for (var r = row; r < Math.min(row + rowSpan, tableData.rows); r++) {
+          for (var c = col; c < Math.min(col + colSpan, tableData.cols); c++) {
+            if (r === row && c === col) {
+              grid[r][c] = cellData; // First position gets the cell data
+            } else {
+              grid[r][c] = 'occupied'; // Other positions marked as occupied
+            }
+          }
+        }
+      }
+
+      // Second pass: render the table using the grid
       for (var row = 0; row < tableData.rows; row++) {
         var tr = document.createElement('tr');
 
         for (var col = 0; col < tableData.cols; col++) {
-          var td = document.createElement('td');
-          td.style.cssText = 'border: 1px solid #ccc; padding: 8px; vertical-align: top;';
+          var cellData = grid[row][col];
 
-          // Get cell text
-          if (cellIndex < tableData.cells.length) {
-            td.textContent = tableData.cells[cellIndex];
-            cellIndex++;
+          // Skip positions occupied by rowspan/colspan from previous cells
+          if (cellData === 'occupied') {
+            continue;
+          }
+
+          var td = document.createElement('td');
+          td.style.cssText = 'border: 1px solid #ccc; padding: 8px; vertical-align: top; min-width: 50px; min-height: 30px;';
+
+          if (cellData !== null) {
+            // Set text
+            td.textContent = cellData.text || '';
+
+            // Apply colspan/rowspan if present
+            if (cellData.colSpan && cellData.colSpan > 1) {
+              td.setAttribute('colspan', cellData.colSpan);
+            }
+            if (cellData.rowSpan && cellData.rowSpan > 1) {
+              td.setAttribute('rowspan', cellData.rowSpan);
+            }
           } else {
-            td.textContent = '';
+            // Empty cell
+            td.innerHTML = '&nbsp;';
           }
 
           tr.appendChild(td);
@@ -1349,7 +1956,108 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         table.appendChild(tr);
       }
 
+      console.log("[RENDER-TABLE] Table rendering complete");
+      console.log("[RENDER-TABLE] ========================================");
+
       return table;
+    },
+
+    /**
+     * Parse PARA_SHAPE (문단 모양) from DocInfo
+     */
+    _parseParaShape: function(data) {
+      try {
+        if (data.length < 54) {
+          console.warn("[HWPViewerWindow] PARA_SHAPE data too small:", data.length);
+          return null;
+        }
+
+        var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        var offset = 0;
+
+        var attr1 = view.getUint32(offset, true); offset += 4;
+        var leftMargin = view.getInt32(offset, true); offset += 4;
+        var rightMargin = view.getInt32(offset, true); offset += 4;
+        var indent = view.getInt32(offset, true); offset += 4;
+        var spacingTop = view.getInt32(offset, true); offset += 4;
+        var spacingBottom = view.getInt32(offset, true); offset += 4;
+        var lineSpacing = view.getInt32(offset, true); offset += 4;
+
+        // Extract alignment from attr1 (bits 2-4)
+        var alignType = (attr1 >> 2) & 0x07;
+        var alignments = ['justify', 'left', 'right', 'center', 'distribute', 'divide'];
+        var alignment = alignments[alignType] || 'left';
+
+        return {
+          alignment: alignment,
+          leftMargin: leftMargin,
+          rightMargin: rightMargin,
+          indent: indent,
+          spacingTop: spacingTop,
+          spacingBottom: spacingBottom,
+          lineSpacing: lineSpacing,
+          attr1: attr1
+        };
+      } catch (e) {
+        console.error("[HWPViewerWindow] Error parsing PARA_SHAPE:", e);
+        return null;
+      }
+    },
+
+    /**
+     * Parse CHAR_SHAPE (글자 모양) from DocInfo
+     */
+    _parseCharShape: function(data) {
+      try {
+        if (data.length < 72) {
+          console.warn("[HWPViewerWindow] CHAR_SHAPE data too small:", data.length);
+          return null;
+        }
+
+        var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        var offset = 0;
+
+        // Skip language-specific font IDs (14 bytes)
+        offset += 14;
+        // Skip language-specific ratios and spacing (28 bytes)
+        offset += 28;
+
+        var baseSize = view.getInt32(offset, true); offset += 4;
+        var attr = view.getUint32(offset, true); offset += 4;
+
+        // Skip shadow spacing
+        offset += 2;
+
+        var textColor = view.getUint32(offset, true); offset += 4;
+        var underlineColor = view.getUint32(offset, true); offset += 4;
+        var shadeColor = view.getUint32(offset, true); offset += 4;
+        var shadowColor = view.getUint32(offset, true); offset += 4;
+
+        // Extract attributes
+        var italic = !!(attr & 0x01);
+        var bold = !!(attr & 0x02);
+
+        // Convert COLORREF (0x00BBGGRR) to CSS color
+        var r = textColor & 0xFF;
+        var g = (textColor >> 8) & 0xFF;
+        var b = (textColor >> 16) & 0xFF;
+        var color = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+        return {
+          baseSize: baseSize,
+          italic: italic,
+          bold: bold,
+          color: color,
+          textColor: textColor,
+          underlineColor: underlineColor,
+          shadeColor: shadeColor,
+          shadowColor: shadowColor,
+          attr: attr
+        };
+      } catch (e) {
+        console.error("[HWPViewerWindow] Error parsing CHAR_SHAPE:", e);
+        return null;
+      }
     },
 
     /**
