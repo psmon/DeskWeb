@@ -723,7 +723,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
     },
 
     /**
-     * Extract paragraphs from records
+     * Extract paragraphs and tables from records
      */
     _extractParagraphs: function(records) {
       var paragraphs = [];
@@ -732,12 +732,53 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
       var paraHeaderCount = 0;
       var paraTextCount = 0;
+      var tableCount = 0;
 
       for (var i = 0; i < records.length; i++) {
         var record = records[i];
 
+        // Check for CTRL_HEADER (0x37 = 55) which precedes tables
+        // HWPTAG_CTRL_HEADER = HWPTAG_BEGIN + 55 = 16 + 55 = 71 (0x47)
+        if (record.tagId === 0x47 || record.tagId === 71) {
+          console.log("[HWPViewerWindow] Found CTRL_HEADER (0x47/71), checking for table...");
+
+          // Check if next record is TABLE
+          if (i + 1 < records.length) {
+            var nextRecord = records[i + 1];
+            console.log("[HWPViewerWindow] Next record after CTRL_HEADER: tagId=0x" + nextRecord.tagId.toString(16));
+
+            // HWPTAG_TABLE = HWPTAG_BEGIN + 61 = 16 + 61 = 77 (0x4D)
+            if (nextRecord.tagId === 0x4D || nextRecord.tagId === 77) {
+              tableCount++;
+              console.log("[HWPViewerWindow] Found TABLE record (0x4D/77), size:", nextRecord.data.length);
+
+              var table = this._parseTable(nextRecord.data, records, i + 1);
+              if (table) {
+                paragraphs.push({
+                  type: 'table',
+                  table: table
+                });
+                console.log("[HWPViewerWindow] Added table:", table.rows, "rows x", table.cols, "cols");
+              }
+            }
+          }
+        }
+        // HWPTAG_TABLE standalone (might occur without CTRL_HEADER)
+        else if (record.tagId === 0x4D || record.tagId === 77) {
+          tableCount++;
+          console.log("[HWPViewerWindow] Found standalone TABLE record (0x4D/77), size:", record.data.length);
+
+          var table = this._parseTable(record.data, records, i);
+          if (table) {
+            paragraphs.push({
+              type: 'table',
+              table: table
+            });
+            console.log("[HWPViewerWindow] Added table:", table.rows, "rows x", table.cols, "cols");
+          }
+        }
         // PARA_HEADER (0x50 = 80)
-        if (record.tagId === 0x50) {
+        else if (record.tagId === 0x50) {
           paraHeaderCount++;
           var text = '';
 
@@ -751,6 +792,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
           if (text.trim().length > 0) {
             paragraphs.push({
+              type: 'paragraph',
               text: text
             });
             console.log("[HWPViewerWindow] Added paragraph:", text.substring(0, 50) + "...");
@@ -763,6 +805,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
           if (text.trim().length > 0) {
             paragraphs.push({
+              type: 'paragraph',
               text: text
             });
             console.log("[HWPViewerWindow] Found standalone PARA_TEXT, length:", text.length, "text:", text.substring(0, 50) + "...");
@@ -773,7 +816,8 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       console.log("[HWPViewerWindow] Extraction summary:");
       console.log("[HWPViewerWindow] - PARA_HEADER (0x50) found:", paraHeaderCount);
       console.log("[HWPViewerWindow] - PARA_TEXT (0x51) found:", paraTextCount);
-      console.log("[HWPViewerWindow] - Total paragraphs extracted:", paragraphs.length);
+      console.log("[HWPViewerWindow] - TABLE (0x3D) found:", tableCount);
+      console.log("[HWPViewerWindow] - Total items extracted:", paragraphs.length);
 
       // If no paragraphs found, try alternative extraction
       if (paragraphs.length === 0) {
@@ -954,6 +998,127 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
     },
 
     /**
+     * Parse table structure
+     */
+    _parseTable: function(data, allRecords, currentIndex) {
+      try {
+        console.log("[HWPViewerWindow] Parsing table, data size:", data.length);
+
+        if (data.length < 22) {
+          console.warn("[HWPViewerWindow] Table data too small");
+          return null;
+        }
+
+        var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        var offset = 0;
+
+        // Skip object common properties (variable size, we'll estimate)
+        // For now, skip first part and try to find table properties
+        // Table properties start at some offset after common properties
+
+        // Try to parse table properties
+        // According to spec (표 75):
+        // UINT32 4 속성
+        // UINT16 2 RowCount
+        // UINT16 2 nCols
+        // HWPUNIT16 2 CellSpacing
+        // ... (more fields)
+
+        // We need to skip the "개체 공통 속성" first
+        // Let's try different offsets
+        var found = false;
+        for (var tryOffset = 0; tryOffset < Math.min(100, data.length - 22); tryOffset += 4) {
+          offset = tryOffset;
+
+          try {
+            var props = view.getUint32(offset, true); offset += 4;
+            var rows = view.getUint16(offset, true); offset += 2;
+            var cols = view.getUint16(offset, true); offset += 2;
+
+            // Sanity check: rows and cols should be reasonable (1-100)
+            if (rows >= 1 && rows <= 100 && cols >= 1 && cols <= 100) {
+              console.log("[HWPViewerWindow] Found table at offset", tryOffset, ":", rows, "rows x", cols, "cols");
+
+              var table = {
+                rows: rows,
+                cols: cols,
+                properties: props,
+                cells: []
+              };
+
+              // Try to extract cell text from surrounding records
+              // Tag IDs (HWPTAG_BEGIN = 0x10):
+              // PARA_HEADER = 0x10 + 50 = 0x42 (66)
+              // PARA_TEXT = 0x10 + 51 = 0x43 (67)
+              // PARA_CHAR_SHAPE = 0x10 + 52 = 0x44 (68)
+              // PARA_LINE_SEG = 0x10 + 53 = 0x45 (69)
+              // CTRL_HEADER = 0x10 + 55 = 0x47 (71)
+              // LIST_HEADER = 0x10 + 56 = 0x48 (72)
+              var foundListHeader = false;
+              for (var j = currentIndex + 1; j < Math.min(currentIndex + 200, allRecords.length); j++) {
+                var rec = allRecords[j];
+
+                // LIST_HEADER (0x48 = 72)
+                if (rec.tagId === 0x48 || rec.tagId === 72) {
+                  foundListHeader = true;
+                  console.log("[HWPViewerWindow] Found LIST_HEADER at index", j);
+                }
+
+                // PARA_HEADER (0x42 = 66) - marks start of a paragraph
+                if (rec.tagId === 0x42 || rec.tagId === 66) {
+                  console.log("[HWPViewerWindow] Found PARA_HEADER at index", j);
+                }
+
+                // PARA_TEXT (0x43 = 67) - contains the actual text
+                if (rec.tagId === 0x43 || rec.tagId === 67) {
+                  var cellText = this._parseParaText(rec.data);
+                  if (cellText.trim().length > 0) {
+                    table.cells.push(cellText.trim());
+                    console.log("[HWPViewerWindow] Added cell text from PARA_TEXT:", cellText.substring(0, 30) + "...");
+                  }
+                }
+
+                // Also try 0x1c records (ViewText) which might contain cell text
+                if (rec.tagId === 0x1c) {
+                  var viewText = this._parseViewTextRecord(rec.data);
+                  if (viewText && viewText.trim().length > 0) {
+                    table.cells.push(viewText.trim());
+                    console.log("[HWPViewerWindow] Added cell text from ViewText:", viewText.substring(0, 30) + "...");
+                  }
+                }
+
+                // Stop when we find another major structure (CTRL_HEADER, TABLE)
+                if ((rec.tagId === 0x47 || rec.tagId === 71) || (rec.tagId === 0x4D || rec.tagId === 77)) {
+                  if (j > currentIndex + 5) { // Only break if we've searched a bit
+                    console.log("[HWPViewerWindow] Stopping cell search at tag 0x" + rec.tagId.toString(16));
+                    break;
+                  }
+                }
+              }
+
+              console.log("[HWPViewerWindow] Extracted", table.cells.length, "cell texts (found LIST_HEADER:", foundListHeader + ")");
+
+              found = true;
+              return table;
+            }
+          } catch (e) {
+            // Try next offset
+          }
+        }
+
+        if (!found) {
+          console.warn("[HWPViewerWindow] Could not find valid table structure");
+        }
+
+        return null;
+
+      } catch (error) {
+        console.error("[HWPViewerWindow] Error parsing table:", error);
+        return null;
+      }
+    },
+
+    /**
      * Read CFB stream
      */
     _readCFBStream: function(cfb, streamName) {
@@ -1123,13 +1288,20 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         sectionHeader.textContent = 'Page ' + (idx + 1);
         wrapper.appendChild(sectionHeader);
 
-        // Paragraphs
-        section.paragraphs.forEach(function(para) {
-          var p = document.createElement('p');
-          p.style.cssText = 'margin: 0 0 12px 0; line-height: 1.8; text-align: justify;';
-          p.textContent = para.text || '';
-          wrapper.appendChild(p);
-        });
+        // Paragraphs and tables
+        section.paragraphs.forEach(function(item) {
+          if (item.type === 'table') {
+            // Render table
+            var table = this._renderTable(item.table);
+            wrapper.appendChild(table);
+          } else {
+            // Render paragraph
+            var p = document.createElement('p');
+            p.style.cssText = 'margin: 0 0 12px 0; line-height: 1.8; text-align: justify;';
+            p.textContent = item.text || '';
+            wrapper.appendChild(p);
+          }
+        }, this);
 
         // Page break
         if (idx < sections.length - 1) {
@@ -1137,13 +1309,47 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
           pageBreak.style.cssText = 'border: none; border-top: 2px dashed #ccc; margin: 30px 0;';
           wrapper.appendChild(pageBreak);
         }
-      });
+      }, this);
 
       container.appendChild(wrapper);
 
       // Update page navigation
       this.__totalPages = sections.length;
       this._updatePageNavigation();
+    },
+
+    /**
+     * Render table as HTML
+     */
+    _renderTable: function(tableData) {
+      var table = document.createElement('table');
+      table.style.cssText = 'border-collapse: collapse; width: 100%; margin: 20px 0; border: 1px solid #ddd;';
+
+      console.log("[HWPViewerWindow] Rendering table:", tableData.rows, "x", tableData.cols, "with", tableData.cells.length, "cells");
+
+      var cellIndex = 0;
+      for (var row = 0; row < tableData.rows; row++) {
+        var tr = document.createElement('tr');
+
+        for (var col = 0; col < tableData.cols; col++) {
+          var td = document.createElement('td');
+          td.style.cssText = 'border: 1px solid #ccc; padding: 8px; vertical-align: top;';
+
+          // Get cell text
+          if (cellIndex < tableData.cells.length) {
+            td.textContent = tableData.cells[cellIndex];
+            cellIndex++;
+          } else {
+            td.textContent = '';
+          }
+
+          tr.appendChild(td);
+        }
+
+        table.appendChild(tr);
+      }
+
+      return table;
     },
 
     /**
