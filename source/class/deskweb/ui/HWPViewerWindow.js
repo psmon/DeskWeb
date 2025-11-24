@@ -874,18 +874,32 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         console.log("[HWPViewerWindow] Parsing ViewText record, size:", data.length);
         console.log("[HWPViewerWindow] First 32 bytes:", Array.from(data.slice(0, 32)).map(b => "0x" + b.toString(16).padStart(2, '0')).join(' '));
 
-        // ViewText record structure (from reference):
-        // Bytes 0-3: Record header (already parsed)
-        // After header: text data in UTF-16LE
+        // ViewText record data is often compressed
+        // Try decompressing first
+        var decompressed = null;
 
-        // Skip first 4 bytes if they look like a header
-        var offset = 0;
+        try {
+          console.log("[HWPViewerWindow] Attempting to decompress 0x1c record data...");
+          decompressed = window.pako.inflateRaw(data);
+          console.log("[HWPViewerWindow] ✅ 0x1c record decompressed:", data.length, "->", decompressed.length, "bytes");
+          data = decompressed;
+        } catch (e1) {
+          console.log("[HWPViewerWindow] inflateRaw failed, trying inflate:", e1.message);
+          try {
+            decompressed = window.pako.inflate(data);
+            console.log("[HWPViewerWindow] ✅ 0x1c record decompressed with inflate:", data.length, "->", decompressed.length, "bytes");
+            data = decompressed;
+          } catch (e2) {
+            console.log("[HWPViewerWindow] Decompression failed, trying as uncompressed:", e2.message);
+            // Continue with original data
+          }
+        }
 
-        // Try different offsets to find the text
+        // Now try to decode as UTF-16LE from various offsets
         var possibleOffsets = [0, 4, 8, 12, 16];
 
         for (var k = 0; k < possibleOffsets.length; k++) {
-          offset = possibleOffsets[k];
+          var offset = possibleOffsets[k];
 
           if (offset >= data.length) continue;
 
@@ -913,7 +927,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
               // Found valid text
               var cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
               if (cleaned.length > 10) {
-                console.log("[HWPViewerWindow] ✅ Found text at offset", offset);
+                console.log("[HWPViewerWindow] ✅ Found text at offset", offset, "length:", cleaned.length);
                 return cleaned;
               }
             }

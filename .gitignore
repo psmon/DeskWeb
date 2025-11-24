@@ -4,3 +4,4 @@
 .package-cache.json
 .env
 /node_modules
+/.venv

@@ -28,7 +28,8 @@
       "Bash(docker exec:*)",
       "Bash(docker ps:*)",
       "WebFetch(domain:mcp.webnori.com)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker compose:*)"
     ],
     "deny": [],
     "ask": []
