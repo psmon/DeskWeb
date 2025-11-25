@@ -1331,6 +1331,37 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
               var totalGridPositions = rows * cols; // Total grid positions
               var gridPositionsFilled = 0; // Track how many grid positions are filled (including merged cells)
 
+              // Create a grid to track occupied positions (for merged cell handling)
+              var occupiedGrid = [];
+              for (var gr = 0; gr < rows; gr++) {
+                occupiedGrid[gr] = [];
+                for (var gc = 0; gc < cols; gc++) {
+                  occupiedGrid[gr][gc] = false;
+                }
+              }
+
+              // Helper: find next empty position in grid
+              var findNextEmptyPos = function(startRow, startCol) {
+                for (var r = startRow; r < rows; r++) {
+                  var cStart = (r === startRow) ? startCol : 0;
+                  for (var c = cStart; c < cols; c++) {
+                    if (!occupiedGrid[r][c]) {
+                      return { row: r, col: c };
+                    }
+                  }
+                }
+                return null; // Grid is full
+              };
+
+              // Helper: mark grid positions as occupied
+              var markOccupied = function(row, col, rowSpan, colSpan) {
+                for (var r = row; r < row + rowSpan && r < rows; r++) {
+                  for (var c = col; c < col + colSpan && c < cols; c++) {
+                    occupiedGrid[r][c] = true;
+                  }
+                }
+              };
+
               for (var j = currentIndex + 1; j < Math.min(currentIndex + 300, allRecords.length); j++) {
                 var rec = allRecords[j];
 
@@ -1338,7 +1369,8 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 if (rec.tagId === 0x48 || rec.tagId === 72) {
                   // Save previous cell if exists
                   if (currentCell !== null) {
-                    // Calculate grid positions this cell occupies
+                    // Mark grid positions as occupied
+                    markOccupied(currentCell.row, currentCell.col, currentCell.rowSpan, currentCell.colSpan);
                     var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
                     gridPositionsFilled += cellGridSize;
                     console.log("[TABLE-CELL] Cell", cellCount, "occupies", cellGridSize, "grid positions (" +
@@ -1369,28 +1401,31 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                   //   - UINT16 (2): 행의 병합 개수 (rowSpan)
                   //   - ... (나머지 필드)
 
-                  var cellCol = cellCount % cols;
-                  var cellRow = Math.floor(cellCount / cols);
+                  // Find next empty position in grid (for sequential fallback)
+                  var nextEmpty = findNextEmptyPos(0, 0);
+                  var cellCol = nextEmpty ? nextEmpty.col : 0;
+                  var cellRow = nextEmpty ? nextEmpty.row : 0;
                   var colSpan = 1;
                   var rowSpan = 1;
 
                   // Try to parse cell attributes from LIST_HEADER data
                   // The structure is: LIST_HEADER (6 bytes) + 셀 속성 (26 bytes)
-                  // But we need to try multiple offsets because the structure may vary
+                  // 셀 속성 (표 80): col(2) + row(2) + colSpan(2) + rowSpan(2) + ...
 
-                  console.log("[TABLE-CELL] Full LIST_HEADER data (" + rec.data.length + " bytes):",
+                  console.log("[TABLE-CELL] LIST_HEADER data (" + rec.data.length + " bytes):",
                              Array.from(rec.data.slice(0, Math.min(40, rec.data.length))).map(b => "0x" + b.toString(16).padStart(2, '0')).join(' '));
 
-                  if (rec.data && rec.data.length >= 8) {
+                  if (rec.data && rec.data.length >= 14) {
                     try {
                       var cellView = new DataView(rec.data.buffer, rec.data.byteOffset, rec.data.byteLength);
+
+                      // Try multiple offsets to find cell attributes
+                      // The offset can vary depending on HWP version
+                      var possibleOffsets = [6, 0, 2, 4, 8, 10];
                       var foundValidCell = false;
 
-                      // Try different offsets: 0, 2, 4, 6, 8, 10 (셀 속성이 어디서 시작하는지 찾기)
-                      var tryOffsets = [6, 0, 2, 4, 8, 10];
-
-                      for (var tryIdx = 0; tryIdx < tryOffsets.length && !foundValidCell; tryIdx++) {
-                        var cellAttrOffset = tryOffsets[tryIdx];
+                      for (var oi = 0; oi < possibleOffsets.length && !foundValidCell; oi++) {
+                        var cellAttrOffset = possibleOffsets[oi];
 
                         if (cellAttrOffset + 8 > rec.data.length) continue;
 
@@ -1401,43 +1436,32 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
                         console.log("[TABLE-CELL] Trying offset", cellAttrOffset, ": col=" + parsedCol + ", row=" + parsedRow + ", colSpan=" + parsedColSpan + ", rowSpan=" + parsedRowSpan);
 
-                        // Validate parsed values
-                        if (parsedCol < cols && parsedRow < rows &&
-                            parsedColSpan >= 1 && parsedColSpan <= cols &&
-                            parsedRowSpan >= 1 && parsedRowSpan <= rows) {
+                        // Validate: position must match next empty position OR be valid for merged cell
+                        var isValidPosition = (parsedCol < cols && parsedRow < rows);
+                        var isValidSpan = (parsedColSpan >= 1 && parsedColSpan <= cols &&
+                                          parsedRowSpan >= 1 && parsedRowSpan <= rows);
+                        var matchesNextEmpty = (nextEmpty && parsedCol === nextEmpty.col && parsedRow === nextEmpty.row);
+                        var hasMerge = (parsedColSpan > 1 || parsedRowSpan > 1);
 
-                          // Additional validation: check if this would overfill the grid
-                          var cellSize = parsedColSpan * parsedRowSpan;
-                          var projectedTotal = gridPositionsFilled + cellSize;
-
-                          // Also validate that row/col make sense (close to expected sequential position)
-                          var expectedRow = Math.floor(cellCount / cols);
-                          var expectedCol = cellCount % cols;
-
-                          // Allow for merged cells: row should be same or ahead, col can vary
-                          // But don't allow completely random positions
-                          var rowOk = parsedRow <= rows && parsedRow >= 0;
-                          var colOk = parsedCol <= cols && parsedCol >= 0;
-
-                          if (rowOk && colOk && projectedTotal <= totalGridPositions) {
-                            cellCol = parsedCol;
-                            cellRow = parsedRow;
-                            colSpan = parsedColSpan;
-                            rowSpan = parsedRowSpan;
-                            foundValidCell = true;
-                            console.log("[TABLE-CELL] ✅ Using parsed cell at offset", cellAttrOffset, ": row=" + cellRow + ", col=" + cellCol + ", colSpan=" + colSpan + ", rowSpan=" + rowSpan);
-                          }
+                        // Accept if: valid position AND valid span AND (matches expected OR has merge)
+                        if (isValidPosition && isValidSpan && (matchesNextEmpty || hasMerge)) {
+                          cellCol = parsedCol;
+                          cellRow = parsedRow;
+                          colSpan = parsedColSpan;
+                          rowSpan = parsedRowSpan;
+                          foundValidCell = true;
+                          console.log("[TABLE-CELL] ✅ Using offset", cellAttrOffset, ": row=" + cellRow + ", col=" + cellCol + ", span(" + rowSpan + "x" + colSpan + ")");
                         }
                       }
 
                       if (!foundValidCell) {
-                        console.log("[TABLE-CELL] ⚠️ No valid cell attributes found, using sequential position");
+                        console.log("[TABLE-CELL] No valid offset found, using next empty position: row=" + cellRow + ", col=" + cellCol);
                       }
                     } catch (e) {
                       console.log("[TABLE-CELL] Error parsing cell attributes:", e);
                     }
                   } else {
-                    console.log("[TABLE-CELL] LIST_HEADER data too small, using sequential position");
+                    console.log("[TABLE-CELL] LIST_HEADER data too small, using next empty position");
                   }
 
                   currentCell = {
