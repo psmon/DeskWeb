@@ -29,7 +29,8 @@
       "Bash(docker ps:*)",
       "WebFetch(domain:mcp.webnori.com)",
       "Bash(python3:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "mcp__memorizer__search"
     ],
     "deny": [],
     "ask": []
