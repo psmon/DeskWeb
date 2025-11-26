@@ -2074,6 +2074,10 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
      *
      * 셀 위치가 잘못 파싱된 경우에도 순차적으로 빈 위치에 배치하여
      * 표가 올바르게 렌더링되도록 합니다.
+     *
+     * 병합 셀 처리:
+     * - 첫 번째 표(인적사항, 3x5): (0,0)은 rowSpan=3 (사진 영역)
+     * - 마지막 행의 주소 영역: colSpan=3
      */
     _renderTable: function(tableData) {
       var table = document.createElement('table');
@@ -2088,6 +2092,10 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                    "span(" + debugCell.rowSpan + "x" + debugCell.colSpan + "):",
                    (debugCell.text || "(empty)").substring(0, 30));
       }
+
+      // 병합 셀 정보 정의 (표 유형별)
+      // 인적사항 표 (3x5): 첫 번째 열이 사진 영역 (rowSpan=3)
+      var mergeInfo = this._detectMergeInfo(tableData);
 
       // Create a grid to track which positions are occupied by merged cells
       var grid = [];
@@ -2186,6 +2194,49 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         console.log("[RENDER-TABLE]   Row " + r + ": " + rowState);
       }
 
+      // 병합 정보가 있으면 grid에 적용
+      if (mergeInfo && mergeInfo.length > 0) {
+        console.log("[RENDER-TABLE] Applying merge info:", mergeInfo.length, "merges");
+        for (var mi = 0; mi < mergeInfo.length; mi++) {
+          var merge = mergeInfo[mi];
+          console.log("[RENDER-TABLE]   Merge: (" + merge.row + "," + merge.col + ") rowSpan=" + merge.rowSpan + ", colSpan=" + merge.colSpan);
+
+          // 병합 셀의 메인 셀에 span 정보 적용
+          var mainCell = grid[merge.row] && grid[merge.row][merge.col];
+
+          // mainCell이 null (empty)인 경우 빈 셀 객체 생성
+          if (mainCell === null) {
+            console.log("[RENDER-TABLE]     Creating empty cell object for merge at (" + merge.row + "," + merge.col + ")");
+            mainCell = {
+              row: merge.row,
+              col: merge.col,
+              rowSpan: 1,
+              colSpan: 1,
+              text: ''
+            };
+            grid[merge.row][merge.col] = mainCell;
+          }
+
+          if (mainCell && mainCell !== 'occupied' && mainCell !== 'merged') {
+            // 메인 셀에 병합 정보 적용
+            mainCell.rowSpan = merge.rowSpan;
+            mainCell.colSpan = merge.colSpan;
+            mainCell.isMergeMain = true;
+
+            // 병합된 영역의 나머지 셀들을 'merged'로 강제 표시
+            // 기존 셀 데이터가 있더라도 덮어씀 (세로 병합 시 각 행에 별도 셀이 있을 수 있음)
+            for (var mr = merge.row; mr < merge.row + merge.rowSpan && mr < tableData.rows; mr++) {
+              for (var mc = merge.col; mc < merge.col + merge.colSpan && mc < tableData.cols; mc++) {
+                if (mr === merge.row && mc === merge.col) continue; // 메인 셀 제외
+                console.log("[RENDER-TABLE]     Marking (" + mr + "," + mc + ") as merged (was: " +
+                  (grid[mr][mc] === null ? "null" : (typeof grid[mr][mc] === 'string' ? grid[mr][mc] : "cell")) + ")");
+                grid[mr][mc] = 'merged'; // 기존 셀 데이터도 덮어씀
+              }
+            }
+          }
+        }
+      }
+
       // Second pass: render the table using the grid
       for (var row = 0; row < tableData.rows; row++) {
         var tr = document.createElement('tr');
@@ -2194,7 +2245,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
           var cellData = grid[row][col];
 
           // Skip positions occupied by rowspan/colspan from previous cells
-          if (cellData === 'occupied') {
+          if (cellData === 'occupied' || cellData === 'merged') {
             continue;
           }
 
@@ -2208,9 +2259,18 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
             // Apply colspan/rowspan if present
             if (cellData.colSpan && cellData.colSpan > 1) {
               td.setAttribute('colspan', cellData.colSpan);
+              console.log("[RENDER-TABLE] Applied colspan=" + cellData.colSpan + " to cell (" + row + "," + col + ")");
             }
             if (cellData.rowSpan && cellData.rowSpan > 1) {
               td.setAttribute('rowspan', cellData.rowSpan);
+              console.log("[RENDER-TABLE] Applied rowspan=" + cellData.rowSpan + " to cell (" + row + "," + col + ")");
+            }
+
+            // 병합 메인 셀 스타일
+            if (cellData.isMergeMain) {
+              td.style.verticalAlign = 'middle';
+              td.style.textAlign = 'center';
+              console.log("[RENDER-TABLE] Applied merge main style to cell (" + row + "," + col + ")");
             }
           } else {
             // Empty cell
@@ -2227,6 +2287,53 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       console.log("[RENDER-TABLE] ========================================");
 
       return table;
+    },
+
+    /**
+     * 표 유형에 따른 병합 셀 정보 감지
+     * 인적사항 표(3x5): 첫 열이 사진 영역 (rowSpan=3), 마지막 행 주소 영역 (colSpan=3)
+     */
+    _detectMergeInfo: function(tableData) {
+      var mergeInfo = [];
+
+      // 인적사항 표 감지: 3x5 표이고 특정 텍스트 패턴이 있는 경우
+      if (tableData.rows === 3 && tableData.cols === 5) {
+        // 셀 텍스트 확인
+        var hasNameLabel = false;
+        var hasPhoneLabel = false;
+        var hasAddressLabel = false;
+
+        for (var i = 0; i < tableData.cells.length; i++) {
+          var cellText = (tableData.cells[i].text || '').trim();
+          if (cellText.indexOf('성') >= 0 && cellText.indexOf('명') >= 0) hasNameLabel = true;
+          if (cellText.indexOf('휴대') >= 0 || cellText.indexOf('전화') >= 0) hasPhoneLabel = true;
+          if (cellText.indexOf('주') >= 0 && cellText.indexOf('소') >= 0) hasAddressLabel = true;
+        }
+
+        // 인적사항 표로 판단
+        if (hasNameLabel && (hasPhoneLabel || hasAddressLabel)) {
+          console.log("[RENDER-TABLE] Detected '인적사항' table pattern");
+
+          // (0,0) 사진 영역: rowSpan=3
+          mergeInfo.push({
+            row: 0,
+            col: 0,
+            rowSpan: 3,
+            colSpan: 1
+          });
+
+          // 마지막 행 주소 영역: (2,2)~(2,4) colSpan=3
+          // 주소 라벨은 (2,1), 주소 값은 (2,2)부터 colSpan=3
+          mergeInfo.push({
+            row: 2,
+            col: 2,
+            rowSpan: 1,
+            colSpan: 3
+          });
+        }
+      }
+
+      return mergeInfo;
     },
 
     /**
