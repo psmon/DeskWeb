@@ -594,6 +594,12 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       var records = this._parseRecords(data, fileHeader.flags.compressed);
       console.log("[HWPViewerWindow] DocInfo records:", records.length);
 
+      // Debug: log first 30 record tagIds
+      console.log("[HWPViewerWindow] DocInfo first 30 record tagIds:");
+      for (var dbg = 0; dbg < Math.min(30, records.length); dbg++) {
+        console.log("[HWPViewerWindow]   Record[" + dbg + "]: tagId=" + records[dbg].tagId + " (0x" + records[dbg].tagId.toString(16) + "), size=" + records[dbg].data.length);
+      }
+
       // Extract paragraph shapes and character shapes
       var paraShapes = [];
       var charShapes = [];
@@ -620,6 +626,13 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       }
 
       console.log("[HWPViewerWindow] Parsed", paraShapes.length, "paragraph shapes and", charShapes.length, "character shapes");
+
+      // Debug: log all charShapes with their colors
+      console.log("[HWPViewerWindow] CharShape colors:");
+      for (var ci = 0; ci < charShapes.length; ci++) {
+        var cs = charShapes[ci];
+        console.log("[HWPViewerWindow]   CharShape[" + ci + "]: color=" + cs.color + ", bold=" + cs.bold + ", italic=" + cs.italic);
+      }
 
       return {
         records: records,
@@ -856,9 +869,11 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 // If table parsing found text that belongs outside, add it as a paragraph
                 if (table.outsideText && table.outsideText.trim().length > 0) {
                   console.log("[EXTRACT] ✅ Found outside text from table:", table.outsideText.trim());
+                  console.log("[EXTRACT] Outside text paraShapeId:", table.outsideParaShapeId);
                   paragraphs.push({
                     type: 'paragraph',
                     text: table.outsideText.trim(),
+                    paraShapeId: table.outsideParaShapeId,
                     recordIndex: table.outsideTextIndex || -1,
                     afterSkipIndex: table.lastRecordIndex || -1,
                     wasSkipped: false,
@@ -914,9 +929,11 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
               // If table parsing found text that belongs outside, add it as a paragraph
               if (table.outsideText && table.outsideText.trim().length > 0) {
                 console.log("[EXTRACT] ✅ Found outside text from table:", table.outsideText.trim());
+                console.log("[EXTRACT] Outside text paraShapeId:", table.outsideParaShapeId);
                 paragraphs.push({
                   type: 'paragraph',
                   text: table.outsideText.trim(),
+                  paraShapeId: table.outsideParaShapeId,
                   recordIndex: table.outsideTextIndex || -1,
                   _source: 'table_outside_text'
                 });
@@ -1230,8 +1247,31 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         // PARA_TEXT should be UTF-16LE encoded
         var text = new TextDecoder('utf-16le').decode(data);
 
-        // Remove control characters
+        // Debug: log original text if it contains garbage characters
+        if (/[\u6300-\u7FFF]/.test(text)) {
+          console.log("[PARA_TEXT] Before cleaning:", text.substring(0, 50));
+          console.log("[PARA_TEXT] Char codes:", Array.from(text.substring(0, 20)).map(function(c) {
+            return c + "(0x" + c.charCodeAt(0).toString(16) + ")";
+          }).join(" "));
+        }
+
+        // Remove HWP control characters and garbage characters
+        // HWP uses special control codes: 0x00-0x1F (except tab, newline)
         var cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+        // Remove HWP inline control characters that appear as CJK-like garbage
+        // These are HWP control codes/markers misinterpreted as UTF-16:
+        // - 捤獥汬捯 = "desklco" in bytes, HWP control marker
+        // - Extended range 0x6100-0x7FFF to cover all ASCII-based garbage (a-z, A-Z combinations)
+        cleaned = cleaned.replace(/[\u6100-\u7FFF]+/g, '');
+
+        // Remove CJK characters at the start followed by Korean text
+        // This catches any remaining garbage before Korean content
+        cleaned = cleaned.replace(/^[\u4E00-\u9FFF]+(?=[\uAC00-\uD7AF])/g, '');
+
+        // Remove other common HWP control marker ranges
+        cleaned = cleaned.replace(/[\uE000-\uF8FF]/g, ''); // Private Use Area
+        cleaned = cleaned.replace(/[\uFFF0-\uFFFF]/g, ''); // Specials
 
         // Check if text looks valid (mostly printable characters)
         var printableCount = 0;
@@ -1610,7 +1650,8 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                     col: cellCol,
                     colSpan: colSpan,
                     rowSpan: rowSpan,
-                    text: ''
+                    text: '',
+                    charShapeIds: []
                   };
 
                   // IMPORTANT: Mark this cell's position as occupied IMMEDIATELY
@@ -1624,8 +1665,13 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                   cellCount++;
                   lastProcessedIndex = j;
                 }
-                // PARA_HEADER (0x42 = 66) inside a cell
+                // PARA_HEADER (0x42 = 66) inside a cell - track paraShapeId
                 else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell !== null) {
+                  // Parse PARA_HEADER to get paraShapeId for potential outside text
+                  var cellParaHeader = this._parseParaHeader(rec.data);
+                  if (cellParaHeader) {
+                    currentCell.lastParaShapeId = cellParaHeader.paraShapeId;
+                  }
                   lastProcessedIndex = j;
                 }
                 // PARA_TEXT (0x43 = 67) - add text to current cell
@@ -1654,6 +1700,10 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                     if (table.cells.length >= 1 && currentCell.text.trim().length === 0 && gridFillRatio >= 0.7) {
                       console.log("[TABLE-TEXT] Treating as OUTSIDE text (grid >= 70% full)");
 
+                      // Save paraShapeId from current cell's last PARA_HEADER
+                      var outsideParaShapeId = currentCell.lastParaShapeId;
+                      console.log("[TABLE-TEXT] Outside text paraShapeId:", outsideParaShapeId);
+
                       // If current cell has text, save it first (markOccupied was already called when cell was created)
                       if (currentCell.text.trim().length > 0) {
                         table.cells.push(currentCell);
@@ -1662,6 +1712,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
                       table.outsideText = cellText.trim();
                       table.outsideTextIndex = j;
+                      table.outsideParaShapeId = outsideParaShapeId;
                       table.lastRecordIndex = j;
                       tableComplete = true;
                       break;
@@ -1707,8 +1758,18 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                     // Don't break, continue parsing
                   }
                 }
-                // PARA_CHAR_SHAPE, PARA_LINE_SEG inside cell
-                else if (((rec.tagId === 0x44 || rec.tagId === 68) || (rec.tagId === 0x45 || rec.tagId === 69)) && currentCell !== null) {
+                // PARA_CHAR_SHAPE inside cell - parse and store charShapeIds
+                else if ((rec.tagId === 0x44 || rec.tagId === 68) && currentCell !== null) {
+                  var cellCharShapeIds = this._parseParaCharShape(rec.data);
+                  if (cellCharShapeIds && cellCharShapeIds.length > 0) {
+                    // Merge with existing charShapeIds (may have multiple PARA_CHAR_SHAPE records per cell)
+                    currentCell.charShapeIds = currentCell.charShapeIds.concat(cellCharShapeIds);
+                    console.log("[TABLE-CELL] Parsed PARA_CHAR_SHAPE for cell:", cellCharShapeIds.length, "entries");
+                  }
+                  lastProcessedIndex = j;
+                }
+                // PARA_LINE_SEG inside cell
+                else if ((rec.tagId === 0x45 || rec.tagId === 69) && currentCell !== null) {
                   lastProcessedIndex = j;
                 }
                 // CTRL_HEADER (0x47 = 71) or TABLE (0x4D = 77) - another structure
@@ -2002,6 +2063,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
     /**
      * Render paragraph with styles
+     * Supports multiple character shapes for different text ranges (e.g., different colors)
      */
     _renderParagraph: function(item) {
       var p = document.createElement('p');
@@ -2011,6 +2073,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       var paraShape = null;
       if (this.__docInfo && this.__docInfo.paraShapes && item.paraShapeId !== undefined) {
         paraShape = this.__docInfo.paraShapes[item.paraShapeId];
+        console.log("[RENDER-PARA] paraShapeId:", item.paraShapeId, "paraShape:", paraShape);
       }
 
       // Apply paragraph styles
@@ -2018,6 +2081,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         // Alignment
         if (paraShape.alignment) {
           styles.push('text-align: ' + paraShape.alignment);
+          console.log("[RENDER-PARA] Applied alignment:", paraShape.alignment);
         }
 
         // Indentation (convert HWPUNIT to px, approximately 1 HWPUNIT = 0.01mm)
@@ -2042,29 +2106,82 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       }
 
       styles.push('line-height: 1.8');
-
-      // Get character shape - use first one if available
-      var charShape = null;
-      if (this.__docInfo && this.__docInfo.charShapes && item.charShapeIds && item.charShapeIds.length > 0) {
-        var firstCharShapeId = item.charShapeIds[0].charShapeId;
-        charShape = this.__docInfo.charShapes[firstCharShapeId];
-      }
-
-      // Apply character styles
-      if (charShape) {
-        if (charShape.bold) {
-          styles.push('font-weight: bold');
-        }
-        if (charShape.italic) {
-          styles.push('font-style: italic');
-        }
-        if (charShape.color) {
-          styles.push('color: ' + charShape.color);
-        }
-      }
-
       p.style.cssText = styles.join('; ');
-      p.textContent = item.text || '';
+
+      var text = item.text || '';
+      var charShapeIds = item.charShapeIds || [];
+
+      // Debug: check for specific text that should be centered
+      if (/상기.*기재/.test(text)) {
+        console.log("[RENDER-PARA] ★ Found '상기 기재' text:", text);
+        console.log("[RENDER-PARA] ★ paraShapeId:", item.paraShapeId);
+        console.log("[RENDER-PARA] ★ paraShape:", JSON.stringify(paraShape));
+        console.log("[RENDER-PARA] ★ Applied styles:", styles.join('; '));
+        // Check for leading whitespace or tabs
+        var leadingSpaces = text.match(/^[\s\t]+/);
+        if (leadingSpaces) {
+          console.log("[RENDER-PARA] ★ Leading whitespace detected:", leadingSpaces[0].length, "chars");
+          console.log("[RENDER-PARA] ★ Char codes:", Array.from(leadingSpaces[0]).map(function(c) {
+            return "0x" + c.charCodeAt(0).toString(16);
+          }).join(" "));
+        }
+      }
+
+      // If we have multiple character shapes, render text in spans with different styles
+      if (this.__docInfo && this.__docInfo.charShapes && charShapeIds.length > 1) {
+        console.log("[RENDER-PARA] Multiple charShapeIds:", charShapeIds.length, "for text:", text.substring(0, 30));
+
+        // Sort by position
+        charShapeIds.sort(function(a, b) { return a.position - b.position; });
+
+        for (var i = 0; i < charShapeIds.length; i++) {
+          var csInfo = charShapeIds[i];
+          var startPos = csInfo.position;
+          var endPos = (i + 1 < charShapeIds.length) ? charShapeIds[i + 1].position : text.length;
+
+          // Handle HWP position units (may be in character units, not byte units)
+          // HWP stores position as character index
+          if (startPos > text.length) startPos = Math.floor(startPos / 2);
+          if (endPos > text.length) endPos = Math.floor(endPos / 2);
+
+          var substring = text.substring(startPos, endPos);
+          if (!substring) continue;
+
+          var charShape = this.__docInfo.charShapes[csInfo.charShapeId];
+          var span = document.createElement('span');
+
+          if (charShape) {
+            var spanStyles = [];
+            if (charShape.bold) spanStyles.push('font-weight: bold');
+            if (charShape.italic) spanStyles.push('font-style: italic');
+            if (charShape.color && charShape.color !== 'rgb(0,0,0)') {
+              spanStyles.push('color: ' + charShape.color);
+              console.log("[RENDER-PARA] Applied color:", charShape.color, "to text:", substring.substring(0, 20));
+            }
+            span.style.cssText = spanStyles.join('; ');
+          }
+
+          span.textContent = substring;
+          p.appendChild(span);
+        }
+      } else if (this.__docInfo && this.__docInfo.charShapes && charShapeIds.length === 1) {
+        // Single character shape - apply to entire paragraph
+        var charShape = this.__docInfo.charShapes[charShapeIds[0].charShapeId];
+        if (charShape) {
+          var charStyles = [];
+          if (charShape.bold) charStyles.push('font-weight: bold');
+          if (charShape.italic) charStyles.push('font-style: italic');
+          if (charShape.color) {
+            charStyles.push('color: ' + charShape.color);
+            console.log("[RENDER-PARA] Single charShape color:", charShape.color);
+          }
+          p.style.cssText += '; ' + charStyles.join('; ');
+        }
+        p.textContent = text;
+      } else {
+        // No character shape info
+        p.textContent = text;
+      }
 
       return p;
     },
@@ -2161,7 +2278,8 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 col: targetCol,
                 rowSpan: rowSpan,
                 colSpan: colSpan,
-                text: cellData.text
+                text: cellData.text,
+                charShapeIds: cellData.charShapeIds || []
               };
             } else {
               grid[r][c] = 'occupied';
@@ -2253,8 +2371,46 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
           td.style.cssText = 'border: 1px solid #ccc; padding: 8px; vertical-align: top; min-width: 50px; min-height: 30px;';
 
           if (cellData !== null) {
-            // Set text
-            td.textContent = cellData.text || '';
+            // Set text with character styling support
+            var cellText = cellData.text || '';
+            var cellCharShapeIds = cellData.charShapeIds || [];
+
+            // Apply character styles if available
+            if (this.__docInfo && this.__docInfo.charShapes && cellCharShapeIds.length > 0) {
+              console.log("[RENDER-TABLE-CELL] Cell (" + row + "," + col + ") has", cellCharShapeIds.length, "charShapeIds");
+
+              // Sort charShapeIds by position
+              cellCharShapeIds.sort(function(a, b) { return a.position - b.position; });
+
+              // Create styled spans for each character range
+              for (var ci = 0; ci < cellCharShapeIds.length; ci++) {
+                var csInfo = cellCharShapeIds[ci];
+                var startPos = csInfo.position;
+                var endPos = (ci + 1 < cellCharShapeIds.length) ? cellCharShapeIds[ci + 1].position : cellText.length;
+
+                if (startPos >= cellText.length) continue;
+                endPos = Math.min(endPos, cellText.length);
+
+                var segmentText = cellText.substring(startPos, endPos);
+                if (segmentText.length === 0) continue;
+
+                var charShape = this.__docInfo.charShapes[csInfo.charShapeId];
+                var span = document.createElement('span');
+                span.textContent = segmentText;
+
+                if (charShape) {
+                  span.style.color = charShape.color || 'rgb(0,0,0)';
+                  if (charShape.bold) span.style.fontWeight = 'bold';
+                  if (charShape.italic) span.style.fontStyle = 'italic';
+                  console.log("[RENDER-TABLE-CELL] Segment [" + startPos + "-" + endPos + "] charShapeId=" + csInfo.charShapeId + " color=" + charShape.color);
+                }
+
+                td.appendChild(span);
+              }
+            } else {
+              // No character styles, just set text
+              td.textContent = cellText;
+            }
 
             // Apply colspan/rowspan if present
             if (cellData.colSpan && cellData.colSpan > 1) {
@@ -2380,32 +2536,47 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
     /**
      * Parse CHAR_SHAPE (글자 모양) from DocInfo
+     * HWP 5.0 CHAR_SHAPE structure:
+     * - FaceNameID[7]: WORD * 7 = 14 bytes (한글, 영어, 한자, 일어, 기타, 기호, 사용자)
+     * - FontRatio[7]: UINT8 * 7 = 7 bytes
+     * - FontSpacing[7]: INT8 * 7 = 7 bytes
+     * - FontRelativeSize[7]: UINT8 * 7 = 7 bytes
+     * - FontPosition[7]: INT8 * 7 = 7 bytes
+     * - BaseSize: INT32 = 4 bytes (offset 42)
+     * - Attr: UINT32 = 4 bytes (offset 46)
+     * - ShadowGap1: INT8 = 1 byte
+     * - ShadowGap2: INT8 = 1 byte
+     * - TextColor: COLORREF = 4 bytes (offset 52)
+     * - UnderlineColor: COLORREF = 4 bytes
+     * - ShadeColor: COLORREF = 4 bytes
+     * - ShadowColor: COLORREF = 4 bytes
      */
     _parseCharShape: function(data) {
       try {
-        if (data.length < 72) {
+        if (data.length < 68) {
           console.warn("[HWPViewerWindow] CHAR_SHAPE data too small:", data.length);
           return null;
         }
 
         var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+        // Correct offsets based on HWP 5.0 spec
         var offset = 0;
+        offset += 14;  // FaceNameID[7]: WORD * 7
+        offset += 7;   // FontRatio[7]: UINT8 * 7
+        offset += 7;   // FontSpacing[7]: INT8 * 7
+        offset += 7;   // FontRelativeSize[7]: UINT8 * 7
+        offset += 7;   // FontPosition[7]: INT8 * 7
+        // Now at offset 42
 
-        // Skip language-specific font IDs (14 bytes)
-        offset += 14;
-        // Skip language-specific ratios and spacing (28 bytes)
-        offset += 28;
+        var baseSize = view.getInt32(offset, true); offset += 4;  // offset 42-45
+        var attr = view.getUint32(offset, true); offset += 4;     // offset 46-49
+        offset += 2;  // ShadowGap1 + ShadowGap2                  // offset 50-51
 
-        var baseSize = view.getInt32(offset, true); offset += 4;
-        var attr = view.getUint32(offset, true); offset += 4;
-
-        // Skip shadow spacing
-        offset += 2;
-
-        var textColor = view.getUint32(offset, true); offset += 4;
-        var underlineColor = view.getUint32(offset, true); offset += 4;
-        var shadeColor = view.getUint32(offset, true); offset += 4;
-        var shadowColor = view.getUint32(offset, true); offset += 4;
+        var textColor = view.getUint32(offset, true); offset += 4;      // offset 52-55
+        var underlineColor = view.getUint32(offset, true); offset += 4; // offset 56-59
+        var shadeColor = view.getUint32(offset, true); offset += 4;     // offset 60-63
+        var shadowColor = view.getUint32(offset, true); offset += 4;    // offset 64-67
 
         // Extract attributes
         var italic = !!(attr & 0x01);
@@ -2416,6 +2587,11 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         var g = (textColor >> 8) & 0xFF;
         var b = (textColor >> 16) & 0xFF;
         var color = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+        // Debug: log non-black colors
+        if (r > 0 || g > 0 || b > 0) {
+          console.log("[CHAR_SHAPE] Found non-black color:", color, "textColor raw:", "0x" + textColor.toString(16));
+        }
 
         return {
           baseSize: baseSize,
