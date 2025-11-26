@@ -763,10 +763,46 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
       console.log("[EXTRACT] ========================================");
       console.log("[EXTRACT] Extracting paragraphs from", records.length, "records...");
 
+      // Debug: Scan for ALL CTRL_HEADER and TABLE records first
+      console.log("[EXTRACT-SCAN] Scanning for ALL CTRL_HEADER(0x47) and TABLE(0x4D) records...");
+      var ctrlHeaderIndices = [];
+      var tableIndices = [];
+      for (var scanIdx = 0; scanIdx < records.length; scanIdx++) {
+        var tagId = records[scanIdx].tagId;
+        if (tagId === 0x47 || tagId === 71) {
+          ctrlHeaderIndices.push(scanIdx);
+          console.log("[EXTRACT-SCAN] CTRL_HEADER at index", scanIdx,
+                     "next tagId:", (scanIdx + 1 < records.length) ?
+                     "0x" + records[scanIdx + 1].tagId.toString(16) : "none");
+        }
+        if (tagId === 0x4D || tagId === 77) {
+          tableIndices.push(scanIdx);
+          console.log("[EXTRACT-SCAN] TABLE at index", scanIdx,
+                     "prev tagId:", (scanIdx > 0) ?
+                     "0x" + records[scanIdx - 1].tagId.toString(16) : "none");
+        }
+      }
+      console.log("[EXTRACT-SCAN] Total CTRL_HEADER found:", ctrlHeaderIndices.length, "at indices:", ctrlHeaderIndices.slice(0, 20).join(", "));
+      console.log("[EXTRACT-SCAN] Total TABLE found:", tableIndices.length, "at indices:", tableIndices.slice(0, 20).join(", "));
+
+      // DEBUG: Check which CTRL_HEADER + TABLE pairs exist
+      console.log("[EXTRACT-SCAN] Checking CTRL_HEADER + TABLE pairs:");
+      for (var pairIdx = 0; pairIdx < ctrlHeaderIndices.length; pairIdx++) {
+        var chIdx = ctrlHeaderIndices[pairIdx];
+        var nextIdx = chIdx + 1;
+        if (nextIdx < records.length) {
+          var nextTagId = records[nextIdx].tagId;
+          var isTable = (nextTagId === 0x4D || nextTagId === 77);
+          console.log("[EXTRACT-SCAN]   CTRL_HEADER[" + chIdx + "] -> next[" + nextIdx + "] tagId=0x" + nextTagId.toString(16) + " isTable=" + isTable);
+        }
+      }
+
       var paraHeaderCount = 0;
       var paraTextCount = 0;
       var tableCount = 0;
       var skipUntilIndex = -1; // Track which records to skip (already processed by table)
+
+      console.log("[EXTRACT] Starting main parsing loop with skipUntilIndex =", skipUntilIndex);
 
       for (var i = 0; i < records.length; i++) {
         // Skip records that were already processed by a table
@@ -780,6 +816,13 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         }
 
         var record = records[i];
+
+        // DEBUG: Log when we encounter potential table-related records
+        if (record.tagId === 0x47 || record.tagId === 71 || record.tagId === 0x4D || record.tagId === 77) {
+          console.log("[EXTRACT-DEBUG] 📍 At index", i, "tagId=0x" + record.tagId.toString(16),
+                     "skipUntilIndex=", skipUntilIndex,
+                     "will process:", i > skipUntilIndex);
+        }
 
         // Check for CTRL_HEADER (0x37 = 55) which precedes tables
         // HWPTAG_CTRL_HEADER = HWPTAG_BEGIN + 55 = 16 + 55 = 71 (0x47)
@@ -803,7 +846,12 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                   type: 'table',
                   table: table
                 });
-                console.log("[EXTRACT] Added table:", table.rows, "rows x", table.cols, "cols, paragraphs count now:", paragraphs.length);
+                console.log("[EXTRACT] Added table:", table.rows, "rows x", table.cols, "cols with", table.cells.length, "cells");
+                console.log("[EXTRACT] Table cells detail:");
+                for (var ci = 0; ci < table.cells.length; ci++) {
+                  var c = table.cells[ci];
+                  console.log("[EXTRACT]   Cell " + (ci+1) + ": pos(" + c.row + "," + c.col + ") span(" + c.rowSpan + "x" + c.colSpan + ") text:" + (c.text || "").substring(0, 20));
+                }
 
                 // If table parsing found text that belongs outside, add it as a paragraph
                 if (table.outsideText && table.outsideText.trim().length > 0) {
@@ -820,9 +868,18 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 }
 
                 // Skip all records that belong to this table, INCLUDING the TABLE record itself
+                // If there's outsideText, we set skipUntilIndex to just before the outside text
+                // so that the main loop doesn't try to re-parse it
                 if (table.lastRecordIndex) {
-                  skipUntilIndex = table.lastRecordIndex;
-                  console.log("[EXTRACT] Skipping records from", i, "to", skipUntilIndex);
+                  // If outsideText was found, skip to one record before it was found
+                  // (the outsideText is already added above)
+                  if (table.outsideTextIndex && table.outsideText) {
+                    skipUntilIndex = table.outsideTextIndex;
+                    console.log("[EXTRACT] Table has outsideText, skipping to outsideTextIndex:", skipUntilIndex);
+                  } else {
+                    skipUntilIndex = table.lastRecordIndex;
+                    console.log("[EXTRACT] Skipping records from", i, "to", skipUntilIndex);
+                  }
                 } else {
                   // If no lastRecordIndex, at least skip the TABLE record
                   skipUntilIndex = i + 1;
@@ -868,8 +925,13 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
               // Skip all records that belong to this table
               if (table.lastRecordIndex) {
-                skipUntilIndex = table.lastRecordIndex;
-                console.log("[EXTRACT] Skipping records until index", skipUntilIndex);
+                if (table.outsideTextIndex && table.outsideText) {
+                  skipUntilIndex = table.outsideTextIndex;
+                  console.log("[EXTRACT] Table has outsideText, skipping to outsideTextIndex:", skipUntilIndex);
+                } else {
+                  skipUntilIndex = table.lastRecordIndex;
+                  console.log("[EXTRACT] Skipping records until index", skipUntilIndex);
+                }
               }
             }
           } else {
@@ -1262,6 +1324,12 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
      * - HWPTAG_TABLE: 개체 공통 속성 + 표 개체 속성
      * - LIST_HEADER: 문단 리스트 헤더 (6바이트) + 셀 속성 (26바이트)
      * - 셀 속성 (표 80): Column주소(2) + Row주소(2) + 열병합개수(2) + 행병합개수(2) + ...
+     *
+     * 개선 사항:
+     * - 셀 위치 파싱 로직 강화 (LIST_HEADER 오프셋 6에서 시작하는 셀 속성)
+     * - 그리드 기반 셀 위치 추적 (순차 배치 + 병합 셀 처리)
+     * - 표 경계 감지 개선 (그리드 완성 시 즉시 종료)
+     * - 표 외부 텍스트 감지 강화
      */
     _parseTable: function(data, allRecords, currentIndex) {
       try {
@@ -1277,20 +1345,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
         var view = new DataView(data.buffer, data.byteOffset, data.byteLength);
         var offset = 0;
 
-        // Skip object common properties (variable size, we'll estimate)
-        // For now, skip first part and try to find table properties
-        // Table properties start at some offset after common properties
-
-        // Try to parse table properties
-        // According to spec (표 75):
-        // UINT32 4 속성
-        // UINT16 2 RowCount
-        // UINT16 2 nCols
-        // HWPUNIT16 2 CellSpacing
-        // ... (more fields)
-
-        // We need to skip the "개체 공통 속성" first
-        // Let's try different offsets
+        // Try to find table dimensions by scanning possible offsets
         var found = false;
         for (var tryOffset = 0; tryOffset < Math.min(100, data.length - 22); tryOffset += 4) {
           offset = tryOffset;
@@ -1305,15 +1360,7 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
               console.log("[TABLE-PARSE] ========================================");
               console.log("[TABLE-PARSE] Found table at offset", tryOffset, ":", rows, "rows x", cols, "cols");
               console.log("[TABLE-PARSE] Table record index:", currentIndex);
-              console.log("[TABLE-PARSE] Will scan records starting from index", currentIndex + 1);
-
-              // Parse cell information after table header
-              // According to spec, cell list is NOT in the table record itself
-              // but in LIST_HEADER records that follow
-              // So we'll collect cells from the records, not from this data
-
-              var cellAttributes = [];
-              console.log("[TABLE-PARSE] Will extract cell info from LIST_HEADER records");
+              console.log("[TABLE-PARSE] Expected total cells (with merging):", rows, "*", cols, "=", rows * cols, "grid positions");
 
               var table = {
                 rows: rows,
@@ -1323,15 +1370,14 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
               };
 
               // Extract cells from LIST_HEADER records
-              // Each cell is a LIST_HEADER followed by paragraph(s)
               var cellCount = 0;
               var currentCell = null;
-              var listHeaderIndices = []; // Track LIST_HEADER positions
-              var lastProcessedIndex = currentIndex; // Track last index we processed
-              var totalGridPositions = rows * cols; // Total grid positions
-              var gridPositionsFilled = 0; // Track how many grid positions are filled (including merged cells)
+              var lastProcessedIndex = currentIndex;
+              var totalGridPositions = rows * cols;
+              var gridPositionsFilled = 0;
+              var tableComplete = false;
 
-              // Create a grid to track occupied positions (for merged cell handling)
+              // Create a grid to track occupied positions
               var occupiedGrid = [];
               for (var gr = 0; gr < rows; gr++) {
                 occupiedGrid[gr] = [];
@@ -1340,11 +1386,10 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                 }
               }
 
-              // Helper: find next empty position in grid
-              var findNextEmptyPos = function(startRow, startCol) {
-                for (var r = startRow; r < rows; r++) {
-                  var cStart = (r === startRow) ? startCol : 0;
-                  for (var c = cStart; c < cols; c++) {
+              // Helper: find next empty position in grid (left-to-right, top-to-bottom)
+              var findNextEmptyPos = function() {
+                for (var r = 0; r < rows; r++) {
+                  for (var c = 0; c < cols; c++) {
                     if (!occupiedGrid[r][c]) {
                       return { row: r, col: c };
                     }
@@ -1355,113 +1400,209 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
               // Helper: mark grid positions as occupied
               var markOccupied = function(row, col, rowSpan, colSpan) {
+                var count = 0;
                 for (var r = row; r < row + rowSpan && r < rows; r++) {
                   for (var c = col; c < col + colSpan && c < cols; c++) {
-                    occupiedGrid[r][c] = true;
+                    if (!occupiedGrid[r][c]) {
+                      occupiedGrid[r][c] = true;
+                      count++;
+                    }
                   }
                 }
+                return count;
               };
 
-              for (var j = currentIndex + 1; j < Math.min(currentIndex + 300, allRecords.length); j++) {
+              // Helper: check if grid is complete
+              var isGridComplete = function() {
+                for (var r = 0; r < rows; r++) {
+                  for (var c = 0; c < cols; c++) {
+                    if (!occupiedGrid[r][c]) {
+                      return false;
+                    }
+                  }
+                }
+                return true;
+              };
+
+              console.log("[TABLE-PARSE] Scanning records from index", currentIndex + 1);
+
+              for (var j = currentIndex + 1; j < Math.min(currentIndex + 500, allRecords.length); j++) {
                 var rec = allRecords[j];
 
                 // LIST_HEADER (0x48 = 72) marks the start of a cell
                 if (rec.tagId === 0x48 || rec.tagId === 72) {
                   // Save previous cell if exists
                   if (currentCell !== null) {
-                    // Mark grid positions as occupied
-                    markOccupied(currentCell.row, currentCell.col, currentCell.rowSpan, currentCell.colSpan);
-                    var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
-                    gridPositionsFilled += cellGridSize;
-                    console.log("[TABLE-CELL] Cell", cellCount, "occupies", cellGridSize, "grid positions (" +
-                               currentCell.rowSpan + "x" + currentCell.colSpan + "), total filled:", gridPositionsFilled, "/", totalGridPositions);
+                    // Note: markOccupied was already called when cell was created (IMMEDIATELY)
+                    // So we just save the cell without calling markOccupied again
+                    console.log("[TABLE-CELL] Saving cell", cellCount, "at (" + currentCell.row + "," + currentCell.col + ")",
+                               "span(" + currentCell.rowSpan + "x" + currentCell.colSpan + "), text:", currentCell.text.substring(0, 30),
+                               "| Grid filled:", gridPositionsFilled, "/", totalGridPositions);
                     table.cells.push(currentCell);
+                    currentCell = null;
+
+                    // Check if grid is complete AFTER saving the cell
+                    if (isGridComplete()) {
+                      console.log("[TABLE-CELL] ✅ Grid COMPLETE after saving cell! Stopping at index", j);
+                      console.log("[TABLE-CELL] This LIST_HEADER belongs to NEXT table");
+                      table.lastRecordIndex = j - 1;
+                      tableComplete = true;
+                      break;
+                    }
                   }
 
-                  // Check if we've filled all grid positions
-                  if (gridPositionsFilled >= totalGridPositions) {
-                    console.log("[TABLE-CELL] ✅ All grid positions filled (", gridPositionsFilled, ">=", totalGridPositions, "), stopping at index", j);
-                    table.lastRecordIndex = lastProcessedIndex;
+                  // Double-check: if grid is complete, stop immediately
+                  if (isGridComplete()) {
+                    console.log("[TABLE-CELL] ✅ Grid is COMPLETE! Stopping at index", j);
+                    console.log("[TABLE-CELL] This LIST_HEADER belongs to NEXT table or other structure");
+                    table.lastRecordIndex = j - 1;
+                    tableComplete = true;
+                    break;
+                  }
+
+                  // Find next empty position for this cell
+                  var nextEmpty = findNextEmptyPos();
+                  if (!nextEmpty) {
+                    console.log("[TABLE-CELL] ⚠️ No empty grid position available, table is full!");
+                    table.lastRecordIndex = j - 1;
+                    tableComplete = true;
                     break;
                   }
 
                   console.log("[TABLE-CELL] ----------------------------------------");
                   console.log("[TABLE-CELL] Found LIST_HEADER (cell", cellCount + 1, ") at index", j);
-                  console.log("[TABLE-CELL] LIST_HEADER data size:", rec.data ? rec.data.length : 0);
+                  console.log("[TABLE-CELL] Next empty grid position:", nextEmpty.row, ",", nextEmpty.col);
 
                   // Parse cell attributes from LIST_HEADER data
-                  // HWP spec (표 79 - 셀 리스트):
-                  // - 문단 리스트 헤더 (표 65): 6 bytes
-                  //   - INT16 (2): 문단 수
-                  //   - UINT32 (4): 속성
-                  // - 셀 속성 (표 80): 26 bytes
-                  //   - UINT16 (2): Column address (0부터 시작)
-                  //   - UINT16 (2): Row address (0부터 시작)
-                  //   - UINT16 (2): 열의 병합 개수 (colSpan)
-                  //   - UINT16 (2): 행의 병합 개수 (rowSpan)
-                  //   - ... (나머지 필드)
-
-                  // Find next empty position in grid (for sequential fallback)
-                  var nextEmpty = findNextEmptyPos(0, 0);
-                  var cellCol = nextEmpty ? nextEmpty.col : 0;
-                  var cellRow = nextEmpty ? nextEmpty.row : 0;
+                  // Structure: 문단 리스트 헤더 (6 bytes) + 셀 속성 (26+ bytes)
+                  // 셀 속성 at offset 6: col(2) + row(2) + colSpan(2) + rowSpan(2) + ...
+                  var cellCol = nextEmpty.col;
+                  var cellRow = nextEmpty.row;
                   var colSpan = 1;
                   var rowSpan = 1;
 
                   // Try to parse cell attributes from LIST_HEADER data
-                  // The structure is: LIST_HEADER (6 bytes) + 셀 속성 (26 bytes)
+                  // Structure: 문단 리스트 헤더 (6 bytes) + 셀 속성 (26+ bytes)
                   // 셀 속성 (표 80): col(2) + row(2) + colSpan(2) + rowSpan(2) + ...
-
-                  console.log("[TABLE-CELL] LIST_HEADER data (" + rec.data.length + " bytes):",
-                             Array.from(rec.data.slice(0, Math.min(40, rec.data.length))).map(b => "0x" + b.toString(16).padStart(2, '0')).join(' '));
-
+                  //
+                  // IMPORTANT: Use SEQUENTIAL position as primary, and only use parsed SPAN values
+                  // The parsed col/row values are often unreliable or have different meaning
                   if (rec.data && rec.data.length >= 14) {
                     try {
                       var cellView = new DataView(rec.data.buffer, rec.data.byteOffset, rec.data.byteLength);
 
-                      // Try multiple offsets to find cell attributes
-                      // The offset can vary depending on HWP version
-                      var possibleOffsets = [6, 0, 2, 4, 8, 10];
-                      var foundValidCell = false;
+                      // Log raw data for debugging
+                      console.log("[TABLE-CELL] Raw LIST_HEADER data (" + rec.data.length + " bytes):",
+                                 Array.from(rec.data.slice(0, Math.min(32, rec.data.length)))
+                                 .map(function(b) { return "0x" + b.toString(16).padStart(2, '0'); }).join(' '));
 
-                      for (var oi = 0; oi < possibleOffsets.length && !foundValidCell; oi++) {
-                        var cellAttrOffset = possibleOffsets[oi];
+                      // Standard offset for cell attributes is 6 (after 6-byte list header)
+                      var cellAttrOffset = 6;
 
-                        if (cellAttrOffset + 8 > rec.data.length) continue;
+                      if (cellAttrOffset + 8 <= rec.data.length) {
+                        // HWP 셀 속성 구조 분석 (실제 로그 기반):
+                        //
+                        // 로그에서 관찰된 패턴:
+                        // - 1행 셀들: hwpCol=0, hwpRow=0,1,2,3, hwpColSpan=0
+                        // - 2행 셀들: hwpCol=0, hwpRow=0,1,2,3, hwpColSpan=1
+                        // - 3행 셀들: hwpCol=0, hwpRow=0,1,2,3, hwpColSpan=2
+                        //
+                        // 결론:
+                        // - hwpCol: 항상 0 (의미 불명확, 사용하지 않음)
+                        // - hwpRow: 실제 열(col) 인덱스
+                        // - hwpColSpan: 실제 행(row) 인덱스
+                        // - hwpRowSpan: 열 병합 수 (colSpan)
+                        //
+                        var hwpCol = cellView.getUint16(cellAttrOffset, true);
+                        var hwpRow = cellView.getUint16(cellAttrOffset + 2, true);
+                        var hwpColSpan = cellView.getUint16(cellAttrOffset + 4, true);
+                        var hwpRowSpan = cellView.getUint16(cellAttrOffset + 6, true);
 
-                        var parsedCol = cellView.getUint16(cellAttrOffset, true);
-                        var parsedRow = cellView.getUint16(cellAttrOffset + 2, true);
-                        var parsedColSpan = cellView.getUint16(cellAttrOffset + 4, true);
-                        var parsedRowSpan = cellView.getUint16(cellAttrOffset + 6, true);
+                        // 실제 매핑 (로그 분석 기반):
+                        // hwpRow = 실제 col (열 인덱스)
+                        // hwpColSpan = 실제 row (행 인덱스)
+                        // hwpRowSpan = 실제 colSpan (열 병합)
+                        // rowSpan은 HWP에서 직접 제공하지 않음 - 기본값 1 사용
+                        var parsedCol = hwpRow;      // hwpRow가 실제 열 인덱스
+                        var parsedRow = hwpColSpan;  // hwpColSpan이 실제 행 인덱스
+                        var parsedColSpan = hwpRowSpan >= 1 ? hwpRowSpan : 1;  // 열 병합
+                        var parsedRowSpan = 1;  // 행 병합은 기본값 1 (나중에 개선 가능)
 
-                        console.log("[TABLE-CELL] Trying offset", cellAttrOffset, ": col=" + parsedCol + ", row=" + parsedRow + ", colSpan=" + parsedColSpan + ", rowSpan=" + parsedRowSpan);
+                        console.log("[TABLE-CELL] Raw HWP data: hwpCol=" + hwpCol + ", hwpRow=" + hwpRow +
+                                   ", hwpColSpan=" + hwpColSpan + ", hwpRowSpan=" + hwpRowSpan);
+                        console.log("[TABLE-CELL] NEW mapping: col=" + parsedCol + ", row=" + parsedRow +
+                                   ", colSpan=" + parsedColSpan + ", rowSpan=" + parsedRowSpan);
 
-                        // Validate: position must match next empty position OR be valid for merged cell
-                        var isValidPosition = (parsedCol < cols && parsedRow < rows);
-                        var isValidSpan = (parsedColSpan >= 1 && parsedColSpan <= cols &&
-                                          parsedRowSpan >= 1 && parsedRowSpan <= rows);
-                        var matchesNextEmpty = (nextEmpty && parsedCol === nextEmpty.col && parsedRow === nextEmpty.row);
-                        var hasMerge = (parsedColSpan > 1 || parsedRowSpan > 1);
+                        // Use parsed col/row if they are within valid range
+                        var isValidPos = (parsedCol >= 0 && parsedCol < cols &&
+                                         parsedRow >= 0 && parsedRow < rows);
 
-                        // Accept if: valid position AND valid span AND (matches expected OR has merge)
-                        if (isValidPosition && isValidSpan && (matchesNextEmpty || hasMerge)) {
+                        // Check if the parsed position is already occupied
+                        var isOccupied = isValidPos && occupiedGrid[parsedRow] && occupiedGrid[parsedRow][parsedCol];
+                        console.log("[TABLE-CELL] isOccupied check: parsedRow=" + parsedRow + ", parsedCol=" + parsedCol +
+                                   ", gridValue=" + (occupiedGrid[parsedRow] ? occupiedGrid[parsedRow][parsedCol] : "N/A") +
+                                   ", isOccupied=" + isOccupied);
+
+                        // span 값 검증
+                        var isValidSpan = (parsedColSpan <= cols && parsedRowSpan <= rows);
+
+                        // Check if parsed position is occupied - if so, use sequential
+                        // Note: sequential position (nextEmpty) is always unoccupied by definition
+                        if (isValidPos && !isOccupied) {
+                          // Use parsed position from HWP data
                           cellCol = parsedCol;
                           cellRow = parsedRow;
-                          colSpan = parsedColSpan;
-                          rowSpan = parsedRowSpan;
-                          foundValidCell = true;
-                          console.log("[TABLE-CELL] ✅ Using offset", cellAttrOffset, ": row=" + cellRow + ", col=" + cellCol + ", span(" + rowSpan + "x" + colSpan + ")");
-                        }
-                      }
+                          console.log("[TABLE-CELL] ✅ Using PARSED position (row=" + cellRow + ", col=" + cellCol + ")");
 
-                      if (!foundValidCell) {
-                        console.log("[TABLE-CELL] No valid offset found, using next empty position: row=" + cellRow + ", col=" + cellCol);
+                          // Use span values from HWP data
+                          if (isValidSpan) {
+                            colSpan = parsedColSpan;
+                            rowSpan = parsedRowSpan;
+                          }
+                        } else if (isValidPos && isOccupied) {
+                          // Position is occupied - find the existing cell and reuse it
+                          console.log("[TABLE-CELL] ⚠️ Parsed position (" + parsedRow + "," + parsedCol + ") is OCCUPIED");
+
+                          // Find existing cell at this position
+                          var existingCell = null;
+                          for (var ec = 0; ec < table.cells.length; ec++) {
+                            if (table.cells[ec].row === parsedRow && table.cells[ec].col === parsedCol) {
+                              existingCell = table.cells[ec];
+                              break;
+                            }
+                          }
+
+                          if (existingCell) {
+                            console.log("[TABLE-CELL] Found existing cell at (" + parsedRow + "," + parsedCol + "), will append text to it");
+                            // Set currentCell to existing cell so text will be appended
+                            currentCell = existingCell;
+                            // Remove from array (will be re-added when saved)
+                            table.cells.splice(table.cells.indexOf(existingCell), 1);
+                            cellCount--; // Adjust count since we're reusing
+                            lastProcessedIndex = j;
+                            continue; // Skip creating new cell
+                          } else {
+                            // No existing cell found, use sequential position
+                            console.log("[TABLE-CELL] No existing cell found, using sequential (row=" + cellRow + ", col=" + cellCol + ")");
+                          }
+                        } else {
+                          console.log("[TABLE-CELL] ⚠️ Parsed position out of range (col=" + parsedCol + " >= cols=" + cols +
+                                     " or row=" + parsedRow + " >= rows=" + rows + "), using sequential (row=" + cellRow + ", col=" + cellCol + ")");
+                          // Keep sequential position and default span (1x1)
+                        }
+
+                        console.log("[TABLE-CELL] Final: position (row=" + cellRow + ", col=" + cellCol + ") with span(rowSpan=" + rowSpan + ", colSpan=" + colSpan + ")");
+                      } else {
+                        console.log("[TABLE-CELL] Data too short for cell attributes (need 14, have " + rec.data.length + ")");
+                        console.log("[TABLE-CELL] Using sequential position (" + cellRow + "," + cellCol + ") with span(1x1)");
                       }
                     } catch (e) {
-                      console.log("[TABLE-CELL] Error parsing cell attributes:", e);
+                      console.log("[TABLE-CELL] Error parsing cell attributes:", e.message);
+                      console.log("[TABLE-CELL] Using sequential position (" + cellRow + "," + cellCol + ") with span(1x1)");
                     }
                   } else {
-                    console.log("[TABLE-CELL] LIST_HEADER data too small, using next empty position");
+                    console.log("[TABLE-CELL] LIST_HEADER data too small (" + (rec.data ? rec.data.length : 0) + " bytes)");
+                    console.log("[TABLE-CELL] Using sequential position (" + cellRow + "," + cellCol + ") with span(1x1)");
                   }
 
                   currentCell = {
@@ -1472,148 +1613,132 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
                     text: ''
                   };
 
-                  // Calculate grid positions this cell will occupy
-                  var newCellGridSize = colSpan * rowSpan;
-                  var projectedFilled = gridPositionsFilled + newCellGridSize;
-
-                  console.log("[TABLE-CELL] Cell", cellCount + 1, "at (" + cellRow + "," + cellCol + ") span(" + rowSpan + "x" + colSpan + ")",
-                             "will occupy", newCellGridSize, "positions, projected total:", projectedFilled, "/", totalGridPositions);
-
-                  // If this cell would overfill the grid, we've reached the end
-                  if (projectedFilled > totalGridPositions) {
-                    console.warn("[TABLE-CELL] ⚠️ Cell would overfill grid! Stopping table parsing.");
-                    console.warn("[TABLE-CELL] Current:", gridPositionsFilled, "+ New cell:", newCellGridSize,
-                                "= ", projectedFilled, " > ", totalGridPositions);
-                    // Don't add this cell, it's beyond the table boundary
-                    currentCell = null;
-                    table.lastRecordIndex = lastProcessedIndex;
-                    break;
-                  }
+                  // IMPORTANT: Mark this cell's position as occupied IMMEDIATELY
+                  // This prevents subsequent cells from being assigned the same position
+                  // when isOccupied check is performed for the next cell
+                  var immediateGridSize = markOccupied(cellRow, cellCol, rowSpan, colSpan);
+                  gridPositionsFilled += immediateGridSize;
+                  console.log("[TABLE-CELL] 📍 Marked position (" + cellRow + "," + cellCol + ") as occupied IMMEDIATELY",
+                             "| Grid filled:", gridPositionsFilled, "/", totalGridPositions);
 
                   cellCount++;
-                  listHeaderIndices.push(j);
-                  lastProcessedIndex = j; // Update last processed index
-
-                  // Check if this cell completes the table
-                  if (projectedFilled === totalGridPositions) {
-                    console.log("[TABLE-CELL] 🏁 This cell completes the table! Grid will be full after this cell's text.");
-                  }
+                  lastProcessedIndex = j;
                 }
-                // PARA_HEADER (0x42 = 66) - this might be inside a cell
+                // PARA_HEADER (0x42 = 66) inside a cell
                 else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell !== null) {
-                  // Paragraph header inside table cell, just track it
                   lastProcessedIndex = j;
                 }
                 // PARA_TEXT (0x43 = 67) - add text to current cell
                 else if ((rec.tagId === 0x43 || rec.tagId === 67) && currentCell !== null) {
                   var cellText = this._parseParaText(rec.data);
 
-                  // Calculate what the grid will be after adding this cell
-                  var currentCellSize = currentCell.colSpan * currentCell.rowSpan;
-                  var projectedFilledAfterThisCell = gridPositionsFilled + currentCellSize;
+                  console.log("[TABLE-TEXT] PARA_TEXT at index", j, "for cell", cellCount);
+                  console.log("[TABLE-TEXT] Text:", cellText.substring(0, 60) + (cellText.length > 60 ? "..." : ""));
 
-                  console.log("[TABLE-TEXT] Found PARA_TEXT at index", j, ", cell", cellCount);
-                  console.log("[TABLE-TEXT]   Text:", cellText.substring(0, 50) + (cellText.length > 50 ? "..." : ""));
-                  console.log("[TABLE-TEXT]   Current grid:", gridPositionsFilled, ", after this cell:", projectedFilledAfterThisCell, "/", totalGridPositions);
+                  // Check if this text looks like a section heading (should be outside table)
+                  var isHeading = /^\d+\.\s+[가-힣\s]+\s*(사항)?$/.test(cellText.trim());
 
-                  // Check if this text looks like a heading that should be outside the table
-                  // Headings like "2. 학력 사항", "3. 경력 사항", "7. 병역 사항"
-                  var isHeading = /^\d+\.\s*[가-힣\s]+$/.test(cellText.trim());
+                  // Also check for signature/date lines that appear at end of resume
+                  var isSignature = /상기\s*기재\s*사항|지원자|년\s*\d+\s*월\s*\d+\s*일|\(인\)/.test(cellText.trim());
 
-                  // If the table would be full after this cell and text looks like a heading
-                  if (projectedFilledAfterThisCell >= totalGridPositions && isHeading) {
-                    console.warn("[TABLE-TEXT] ⚠️ Text looks like a HEADING and table is nearly full!");
-                    console.warn("[TABLE-TEXT] Treating as OUTSIDE text:", cellText.trim());
+                  if (isHeading || isSignature) {
+                    console.log("[TABLE-TEXT] ⚠️ Detected heading/signature text:", cellText.trim());
 
-                    // Save current cell (with whatever text it has so far)
-                    if (currentCell !== null) {
-                      var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
-                      gridPositionsFilled += cellGridSize;
-                      console.log("[TABLE-TEXT] Saving cell", cellCount, "with text:", currentCell.text);
-                      table.cells.push(currentCell);
+                    // Check how full the grid is - if mostly full, this is likely outside text
+                    var gridFillRatio = gridPositionsFilled / totalGridPositions;
+                    console.log("[TABLE-TEXT] Current grid fill ratio:", gridFillRatio.toFixed(2), "cells so far:", table.cells.length);
+
+                    // Only treat as outside text if grid is sufficiently filled (>= 70%)
+                    // AND current cell has no text AND we have at least one cell already
+                    // This prevents early termination for tables with merged cells
+                    if (table.cells.length >= 1 && currentCell.text.trim().length === 0 && gridFillRatio >= 0.7) {
+                      console.log("[TABLE-TEXT] Treating as OUTSIDE text (grid >= 70% full)");
+
+                      // If current cell has text, save it first (markOccupied was already called when cell was created)
+                      if (currentCell.text.trim().length > 0) {
+                        table.cells.push(currentCell);
+                      }
                       currentCell = null;
-                    }
 
-                    // Store the outside text
-                    table.outsideText = cellText.trim();
-                    table.outsideTextIndex = j;
-                    table.lastRecordIndex = j;
-                    console.warn("[TABLE-TEXT] Stored outside text:", cellText.trim());
-                    break;
+                      table.outsideText = cellText.trim();
+                      table.outsideTextIndex = j;
+                      table.lastRecordIndex = j;
+                      tableComplete = true;
+                      break;
+                    } else {
+                      console.log("[TABLE-TEXT] Grid not full enough or cell has content, treating as cell content");
+                    }
                   }
 
-                  // Regular cell text - add to current cell
+                  // Regular cell text
                   if (currentCell.text.length > 0) {
                     currentCell.text += '\n';
                   }
                   currentCell.text += cellText.trim();
                   lastProcessedIndex = j;
-
-                  // After adding text, check if this cell completes the table
-                  if (projectedFilledAfterThisCell >= totalGridPositions) {
-                    console.log("[TABLE-TEXT] 📝 Added text to last cell of table");
-                  }
                 }
-                // PARA_TEXT OUTSIDE of cell - this should NOT happen during table parsing!
+                // PARA_TEXT outside cell context - should NOT happen in table
                 else if ((rec.tagId === 0x43 || rec.tagId === 67) && currentCell === null) {
                   var outsideText = this._parseParaText(rec.data);
-                  console.warn("[TABLE-TEXT] ⚠️ WARNING: Found PARA_TEXT OUTSIDE cell at index", j, ":", outsideText);
-                  console.warn("[TABLE-TEXT] This text should NOT be in the table! Table should have ended before this.");
-                  console.warn("[TABLE-TEXT] Current cellCount:", cellCount, "Expected cells:", rows * cols);
-                  // Store this as outside text and stop
-                  table.outsideText = outsideText;
-                  table.outsideTextIndex = j;
-                  table.lastRecordIndex = j;
-                  console.warn("[TABLE-TEXT] Stored outside text and set lastRecordIndex to", j);
-                  break;
+                  console.log("[TABLE-TEXT] ⚠️ PARA_TEXT OUTSIDE cell at index", j, ":", outsideText.substring(0, 50));
+                  console.log("[TABLE-TEXT] Grid state: filled", gridPositionsFilled, "/", totalGridPositions, "(" + (gridPositionsFilled/totalGridPositions*100).toFixed(1) + "%), cells:", table.cells.length);
+                  console.log("[TABLE-TEXT] Current occupiedGrid state:");
+                  for (var dbgR = 0; dbgR < rows; dbgR++) {
+                    var dbgRow = "  Row " + dbgR + ": ";
+                    for (var dbgC = 0; dbgC < cols; dbgC++) {
+                      dbgRow += occupiedGrid[dbgR][dbgC] ? "■ " : "□ ";
+                    }
+                    console.log("[TABLE-TEXT]" + dbgRow);
+                  }
+
+                  // Only treat as table end if we have at least some cells and grid is partially filled
+                  // This prevents early termination for tables with merged cells
+                  if (table.cells.length >= 1 && gridPositionsFilled >= Math.floor(totalGridPositions * 0.5)) {
+                    // This is likely text after the table
+                    console.log("[TABLE-TEXT] Grid is >= 50% full, treating as table end");
+                    table.outsideText = outsideText;
+                    table.outsideTextIndex = j;
+                    table.lastRecordIndex = j;
+                    tableComplete = true;
+                    break;
+                  } else {
+                    // Grid not full enough, this might be text inside a merged cell or structure issue
+                    console.log("[TABLE-TEXT] Grid is < 50% full (" + (gridPositionsFilled/totalGridPositions*100).toFixed(1) + "%), continuing to look for more cells");
+                    // Don't break, continue parsing
+                  }
                 }
-                // PARA_CHAR_SHAPE (0x44 = 68) - character shape info
-                else if ((rec.tagId === 0x44 || rec.tagId === 68) && currentCell !== null) {
-                  // Just track it, we're still inside table
+                // PARA_CHAR_SHAPE, PARA_LINE_SEG inside cell
+                else if (((rec.tagId === 0x44 || rec.tagId === 68) || (rec.tagId === 0x45 || rec.tagId === 69)) && currentCell !== null) {
                   lastProcessedIndex = j;
                 }
-                // PARA_LINE_SEG (0x45 = 69) - line segment info
-                else if ((rec.tagId === 0x45 || rec.tagId === 69) && currentCell !== null) {
-                  // Just track it, we're still inside table
-                  lastProcessedIndex = j;
-                }
-                // Stop when we find another major structure OUTSIDE of a cell
+                // CTRL_HEADER (0x47 = 71) or TABLE (0x4D = 77) - another structure
                 else if ((rec.tagId === 0x47 || rec.tagId === 71) || (rec.tagId === 0x4D || rec.tagId === 77)) {
                   if (j > currentIndex + 5) {
-                    console.log("[TABLE-END] Stopping cell search at index", j, "- found CTRL_HEADER/TABLE tag 0x" + rec.tagId.toString(16));
-                    // Save last cell
+                    console.log("[TABLE-END] Found CTRL_HEADER/TABLE at index", j, "- stopping table parsing");
+
+                    // Save current cell if exists (markOccupied was already called when cell was created)
                     if (currentCell !== null) {
-                      var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
-                      gridPositionsFilled += cellGridSize;
-                      console.log("[TABLE-END] Saving last cell before ending");
                       table.cells.push(currentCell);
                       currentCell = null;
                     }
-                    // Set lastRecordIndex to j-1 so the CTRL_HEADER at j is processed by main loop
+
                     table.lastRecordIndex = j - 1;
-                    console.log("[TABLE-END] Set lastRecordIndex to", j - 1, ", next major structure at", j, "will be processed separately");
+                    tableComplete = true;
                     break;
                   }
                 }
-                // PARA_HEADER outside of cell context might indicate end of table
-                else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell === null) {
-                  if (cellCount > 0) {
-                    console.log("[TABLE-END] Found PARA_HEADER outside cell at index", j, "- table ended");
-                    console.log("[TABLE-END] IMPORTANT: Next paragraph at index", j, "should NOT be included in table");
-                    // Set lastRecordIndex to j-1 so the PARA_HEADER at j is processed by main loop
-                    table.lastRecordIndex = j - 1;
-                    console.log("[TABLE-END] Set lastRecordIndex to", j - 1);
-                    break;
-                  }
+                // PARA_HEADER outside cell - table has ended
+                else if ((rec.tagId === 0x42 || rec.tagId === 66) && currentCell === null && cellCount > 0) {
+                  console.log("[TABLE-END] PARA_HEADER outside cell at index", j, "- table ended");
+                  table.lastRecordIndex = j - 1;
+                  tableComplete = true;
+                  break;
                 }
               }
 
-              // Save last cell if loop ended without finding another structure
-              if (currentCell !== null && table.cells.length < cellCount) {
-                console.log("[TABLE-END] Saving last cell (cell", cellCount, ") with text:", currentCell.text);
-                var cellGridSize = currentCell.colSpan * currentCell.rowSpan;
-                gridPositionsFilled += cellGridSize;
-                console.log("[TABLE-END] Last cell occupies", cellGridSize, "grid positions, total filled:", gridPositionsFilled, "/", totalGridPositions);
+              // Save last cell if exists (markOccupied was already called when cell was created)
+              if (currentCell !== null) {
+                console.log("[TABLE-END] Saving final cell", cellCount, "with text:", currentCell.text.substring(0, 30));
                 table.cells.push(currentCell);
               }
 
@@ -1624,23 +1749,25 @@ qx.Class.define("deskweb.ui.HWPViewerWindow",
 
               console.log("[TABLE-SUMMARY] ========================================");
               console.log("[TABLE-SUMMARY] Extracted", table.cells.length, "cells for", rows, "x", cols, "table");
-              console.log("[TABLE-SUMMARY] Total grid positions filled:", gridPositionsFilled, "/", totalGridPositions);
-              console.log("[TABLE-SUMMARY] Last record index for this table:", table.lastRecordIndex);
-              console.log("[TABLE-SUMMARY] Next records after index", table.lastRecordIndex, "will be processed as separate paragraphs");
-
-              // Log all cell contents for debugging
-              console.log("[TABLE-SUMMARY] Cell contents summary:");
-              for (var debugIdx = 0; debugIdx < table.cells.length; debugIdx++) {
-                var debugCell = table.cells[debugIdx];
-                console.log("[TABLE-SUMMARY]   Cell", debugIdx + 1, "at (" + debugCell.row + "," + debugCell.col + ")",
-                           "span(" + debugCell.rowSpan + "x" + debugCell.colSpan + "):",
-                           debugCell.text.substring(0, 50) + (debugCell.text.length > 50 ? "..." : ""));
+              console.log("[TABLE-SUMMARY] Grid positions filled:", gridPositionsFilled, "/", totalGridPositions);
+              console.log("[TABLE-SUMMARY] Last record index:", table.lastRecordIndex);
+              console.log("[TABLE-SUMMARY] Grid state:");
+              for (var gr = 0; gr < rows; gr++) {
+                var rowStr = "  Row " + gr + ": ";
+                for (var gc = 0; gc < cols; gc++) {
+                  rowStr += occupiedGrid[gr][gc] ? "■ " : "□ ";
+                }
+                console.log("[TABLE-SUMMARY]" + rowStr);
               }
-
+              console.log("[TABLE-SUMMARY] Cell contents:");
+              for (var di = 0; di < table.cells.length; di++) {
+                var dc = table.cells[di];
+                console.log("[TABLE-SUMMARY]   [" + di + "] (" + dc.row + "," + dc.col + ") span(" + dc.rowSpan + "x" + dc.colSpan + "):",
+                           dc.text.substring(0, 40) + (dc.text.length > 40 ? "..." : ""));
+              }
               if (table.outsideText) {
-                console.log("[TABLE-SUMMARY] Outside text found:", table.outsideText);
+                console.log("[TABLE-SUMMARY] Outside text:", table.outsideText);
               }
-
               console.log("[TABLE-SUMMARY] ========================================");
 
               found = true;
