@@ -196,6 +196,15 @@ qx.Class.define("deskweb.util.HwpParser",
 
       console.log("[HwpParser] Parsed", paraShapes.length, "paragraph shapes and", charShapes.length, "character shapes");
 
+      // Debug: log all paraShapes with headingType
+      console.log("[HwpParser] ParaShape heading info:");
+      for (var pi = 0; pi < paraShapes.length; pi++) {
+        var ps = paraShapes[pi];
+        console.log("[HwpParser]   ParaShape[" + pi + "]: attr1=0x" + ps.attr1.toString(16) +
+                   ", headingType=" + ps.headingType + ", headingLevel=" + ps.headingLevel +
+                   ", isHeading=" + ps.isHeading);
+      }
+
       // Debug: log all charShapes with their colors
       console.log("[HwpParser] CharShape colors:");
       for (var ci = 0; ci < charShapes.length; ci++) {
@@ -426,7 +435,7 @@ qx.Class.define("deskweb.util.HwpParser",
               console.log("[EXTRACT] ======== TABLE", tableCount, "========");
               console.log("[EXTRACT] Found TABLE record (0x4D/77), size:", nextRecord.data.length);
 
-              var table = this._parseTable(nextRecord.data, records, i + 1);
+              var table = this._parseTable(nextRecord.data, records, i + 1, docInfo);
               if (table) {
                 paragraphs.push({
                   type: 'table',
@@ -483,7 +492,7 @@ qx.Class.define("deskweb.util.HwpParser",
             console.log("[EXTRACT] ======== STANDALONE TABLE", tableCount, "========");
             console.log("[EXTRACT] Found standalone TABLE record (0x4D/77), size:", record.data.length);
 
-            var table = this._parseTable(record.data, records, i);
+            var table = this._parseTable(record.data, records, i, docInfo);
             if (table) {
               paragraphs.push({
                 type: 'table',
@@ -883,8 +892,9 @@ qx.Class.define("deskweb.util.HwpParser",
      * Parse table structure
      * @private
      */
-    _parseTable: function(data, allRecords, currentIndex) {
+    _parseTable: function(data, allRecords, currentIndex, docInfo) {
       try {
+        var paraShapes = docInfo && docInfo.paraShapes ? docInfo.paraShapes : [];
         console.log("[TABLE-PARSE] ========================================");
         console.log("[TABLE-PARSE] Parsing table, data size:", data.length);
         console.log("[TABLE-PARSE] First 32 bytes:", Array.from(data.slice(0, Math.min(32, data.length))).map(function(b) { return "0x" + b.toString(16).padStart(2, '0'); }).join(' '));
@@ -972,12 +982,26 @@ qx.Class.define("deskweb.util.HwpParser",
               };
 
               console.log("[TABLE-PARSE] Scanning records from index", currentIndex + 1);
+              console.log("[TABLE-PARSE] ★ DEBUG: totalGridPositions=" + totalGridPositions + " (rows=" + rows + " x cols=" + cols + ")");
 
               for (var j = currentIndex + 1; j < Math.min(currentIndex + 500, allRecords.length); j++) {
                 var rec = allRecords[j];
 
                 // LIST_HEADER (0x48 = 72)
                 if (rec.tagId === 0x48 || rec.tagId === 72) {
+                  // ★ 핵심: 그리드가 이미 완료된 상태에서 새 LIST_HEADER가 오면 표 종료
+                  if (isGridComplete()) {
+                    console.log("[TABLE-CELL] ★ Grid ALREADY COMPLETE, new LIST_HEADER at index", j, "means TABLE END");
+                    if (currentCell !== null) {
+                      console.log("[TABLE-CELL] Saving last cell before ending:", currentCell.text.substring(0, 30));
+                      table.cells.push(currentCell);
+                      currentCell = null;
+                    }
+                    table.lastRecordIndex = j - 1;
+                    tableComplete = true;
+                    break;
+                  }
+
                   if (currentCell !== null) {
                     console.log("[TABLE-CELL] Saving cell", cellCount, "at (" + currentCell.row + "," + currentCell.col + ")",
                                "span(" + currentCell.rowSpan + "x" + currentCell.colSpan + "), text:", currentCell.text.substring(0, 30),
@@ -991,13 +1015,6 @@ qx.Class.define("deskweb.util.HwpParser",
                       tableComplete = true;
                       break;
                     }
-                  }
-
-                  if (isGridComplete()) {
-                    console.log("[TABLE-CELL] Grid is COMPLETE! Stopping at index", j);
-                    table.lastRecordIndex = j - 1;
-                    tableComplete = true;
-                    break;
                   }
 
                   var nextEmpty = findNextEmptyPos();
@@ -1057,6 +1074,17 @@ qx.Class.define("deskweb.util.HwpParser",
 
                           console.log("[TABLE-CELL] Spec-based (offset 8): col=" + specCol + ", row=" + specRow +
                                      ", colSpan=" + specColSpan + ", rowSpan=" + specRowSpan);
+
+                          // ★ 핵심 수정: spec-based 값을 실제 셀 위치/span에 적용
+                          // offset 8의 값이 정확한 셀 위치와 병합 정보를 담고 있음
+                          if (specCol >= 0 && specCol < cols && specRow >= 0 && specRow < rows) {
+                            parsedCol = specCol;
+                            parsedRow = specRow;
+                            parsedColSpan = specColSpan >= 1 ? specColSpan : 1;
+                            parsedRowSpan = specRowSpan >= 1 ? specRowSpan : 1;
+                            console.log("[TABLE-CELL] ★ Using SPEC values: col=" + parsedCol + ", row=" + parsedRow +
+                                       ", colSpan=" + parsedColSpan + ", rowSpan=" + parsedRowSpan);
+                          }
 
                           // 병합 정보가 있으면 저장 (colSpan > 1 또는 rowSpan > 1)
                           if (specColSpan > 1 || specRowSpan > 1) {
@@ -1131,14 +1159,25 @@ qx.Class.define("deskweb.util.HwpParser",
                     console.log("[TABLE-CELL] Using sequential position (" + cellRow + "," + cellCol + ") with span(1x1)");
                   }
 
+                  // 그리드가 완료될 예정인지 확인 (이 셀이 마지막 셀인지)
+                  var willCompleteGrid = (gridPositionsFilled + (rowSpan * colSpan)) >= totalGridPositions;
+
                   currentCell = {
                     row: cellRow,
                     col: cellCol,
                     colSpan: colSpan,
                     rowSpan: rowSpan,
                     text: '',
-                    charShapeIds: []
+                    charShapeIds: [],
+                    lastWasEmptyText: false,
+                    textCount: 0,  // 셀 내 텍스트 객체 수 추적
+                    isLastCell: willCompleteGrid,  // 마지막 셀 여부 플래그
+                    firstTextWasEmpty: false  // 첫 번째 텍스트가 빈 문자열인지
                   };
+
+                  console.log("[TABLE-CELL] isLastCell:", willCompleteGrid,
+                             "(current filled:", gridPositionsFilled, "+ span:", rowSpan * colSpan,
+                             "vs total:", totalGridPositions, ")");
 
                   var immediateGridSize = markOccupied(cellRow, cellCol, rowSpan, colSpan);
                   gridPositionsFilled += immediateGridSize;
@@ -1160,10 +1199,140 @@ qx.Class.define("deskweb.util.HwpParser",
                 else if ((rec.tagId === 0x43 || rec.tagId === 67) && currentCell !== null) {
                   var cellText = this._parseParaText(rec.data);
 
-                  console.log("[TABLE-TEXT] PARA_TEXT at index", j, "for cell", cellCount);
+                  currentCell.textCount++;
+                  console.log("[TABLE-TEXT] PARA_TEXT at index", j, "for cell", cellCount, ", textCount:", currentCell.textCount);
                   console.log("[TABLE-TEXT] Text:", cellText.substring(0, 60) + (cellText.length > 60 ? "..." : ""));
+                  console.log("[TABLE-TEXT] Cell position: (" + currentCell.row + "," + currentCell.col + ") span(" + currentCell.rowSpan + "x" + currentCell.colSpan + ")");
+                  console.log("[TABLE-TEXT] lastWasEmptyText:", currentCell.lastWasEmptyText);
 
-                  var isHeading = /^\d+\.\s+[가-힣\s]+\s*(사항)?$/.test(cellText.trim());
+                  // 그리드가 충분히 채워진 상태에서 표 종료 조건 검사
+                  var gridFillRatio = gridPositionsFilled / totalGridPositions;
+                  var gridComplete = isGridComplete();
+
+                  // 동적으로 마지막 셀 여부 재계산 (병합 셀 때문에 생성 시점과 다를 수 있음)
+                  var dynamicIsLastCell = gridComplete || currentCell.isLastCell;
+
+                  console.log("[TABLE-TEXT] Grid status: " + gridPositionsFilled + "/" + totalGridPositions +
+                             " (" + (gridFillRatio * 100).toFixed(1) + "%), complete=" + gridComplete +
+                             ", dynamicIsLastCell=" + dynamicIsLastCell);
+
+                  // ★ 핵심 조건 1: 그리드가 100% 완료된 상태에서 두 번째 이상의 텍스트는 표 밖 텍스트
+                  // textCount >= 2: 마지막 셀에 이미 텍스트가 있고, 추가 텍스트가 오는 경우
+                  if (gridComplete && currentCell.textCount >= 2 && cellText.trim().length > 0) {
+                    console.log("[TABLE-TEXT] ★★★ GRID COMPLETE + 2nd TEXT - Outside text detected!");
+                    console.log("[TABLE-TEXT] Outside text:", cellText.trim().substring(0, 50));
+
+                    // 현재 셀 저장 (기존 텍스트가 있으면)
+                    if (currentCell.text.trim().length > 0) {
+                      console.log("[TABLE-TEXT] Saving current cell before ending:", currentCell.text.trim().substring(0, 30));
+                      table.cells.push(currentCell);
+                    }
+
+                    var savedParaShapeId = currentCell.lastParaShapeId;
+                    currentCell = null;
+
+                    table.outsideText = cellText.trim();
+                    table.outsideTextIndex = j;
+                    table.outsideParaShapeId = savedParaShapeId;
+                    table.lastRecordIndex = j;
+                    tableComplete = true;
+                    break;
+                  }
+
+                  // ★ 핵심 조건 2: 마지막 셀이고, 이전에 빈 텍스트가 있었고, 현재 텍스트가 비어있지 않으면
+                  // → 빈 셀(첫 텍스트가 빈 문자열) 다음에 오는 표 밖 텍스트
+                  // textCount >= 2: 첫 번째 텍스트(빈 문자열)가 이미 처리됨
+                  if (dynamicIsLastCell && currentCell.textCount >= 2 &&
+                      currentCell.firstTextWasEmpty && cellText.trim().length > 0) {
+                    console.log("[TABLE-TEXT] ★★★ LAST CELL HAD EMPTY TEXT + non-empty text - Outside text detected!");
+                    console.log("[TABLE-TEXT] Outside text:", cellText.trim().substring(0, 50));
+
+                    // 빈 셀은 저장하지 않음 (또는 빈 텍스트만 있는 셀)
+                    var savedParaShapeId = currentCell.lastParaShapeId;
+                    currentCell = null;
+
+                    table.outsideText = cellText.trim();
+                    table.outsideTextIndex = j;
+                    table.outsideParaShapeId = savedParaShapeId;
+                    table.lastRecordIndex = j;
+                    tableComplete = true;
+                    break;
+                  }
+
+                  // ★ 핵심 조건 3: 마지막 셀이고, 두 번째 텍스트가 빈 문자열이면
+                  // → 첫 번째 텍스트가 실제로는 표 밖 제목이고, 빈 문자열은 셀 종료 마커
+                  if (dynamicIsLastCell && currentCell.textCount === 2 &&
+                      cellText.trim().length === 0 && currentCell.text.trim().length > 0) {
+                    console.log("[TABLE-TEXT] ★★★ LAST CELL: non-empty text + empty text - First text was OUTSIDE!");
+                    console.log("[TABLE-TEXT] Outside text (was first):", currentCell.text.trim().substring(0, 50));
+
+                    // 첫 번째 텍스트를 표 밖으로 처리
+                    var outsideTextContent = currentCell.text.trim();
+                    var savedParaShapeId = currentCell.lastParaShapeId;
+                    currentCell = null;
+
+                    table.outsideText = outsideTextContent;
+                    table.outsideTextIndex = j;
+                    table.outsideParaShapeId = savedParaShapeId;
+                    table.lastRecordIndex = j;
+                    tableComplete = true;
+                    break;
+                  }
+
+                  // 조건 1: 빈 텍스트 후 비어있지 않은 텍스트 (같은 셀 내)
+                  var isEmptyThenNonEmpty = currentCell.lastWasEmptyText && cellText.trim().length > 0;
+                  // 조건 2: 같은 셀에 두 번째 텍스트 객체가 오면 (둘 다 비어있지 않음)
+                  var isSecondTextInLastCell = currentCell.textCount >= 2 && currentCell.text.trim().length > 0 && cellText.trim().length > 0;
+                  // 조건 3: 셀이 비어있고 (첫 텍스트가 빈 문자) 두 번째 텍스트가 비어있지 않음
+                  var isEmptyCellThenNonEmpty = currentCell.textCount >= 2 && currentCell.text.trim().length === 0 && cellText.trim().length > 0;
+
+                  console.log("[TABLE-TEXT] Check conditions: isEmptyThenNonEmpty=" + isEmptyThenNonEmpty +
+                             ", isSecondTextInLastCell=" + isSecondTextInLastCell +
+                             ", isEmptyCellThenNonEmpty=" + isEmptyCellThenNonEmpty +
+                             ", cellText.empty=" + (currentCell.text.trim().length === 0));
+
+                  if ((isEmptyThenNonEmpty || isSecondTextInLastCell || isEmptyCellThenNonEmpty) && gridFillRatio >= 0.7) {
+                    console.log("[TABLE-TEXT] ★ Table end pattern detected!");
+                    console.log("[TABLE-TEXT] isEmptyThenNonEmpty:", isEmptyThenNonEmpty, ", isSecondTextInLastCell:", isSecondTextInLastCell);
+                    console.log("[TABLE-TEXT] Grid fill ratio:", gridFillRatio.toFixed(2));
+
+                    // 현재 셀 저장
+                    if (currentCell.text.trim().length > 0) {
+                      console.log("[TABLE-TEXT] Saving current cell:", currentCell.text.trim().substring(0, 30));
+                      table.cells.push(currentCell);
+                    }
+
+                    var savedParaShapeId = currentCell.lastParaShapeId;
+                    currentCell = null;
+
+                    table.outsideText = cellText.trim();
+                    table.outsideTextIndex = j;
+                    table.outsideParaShapeId = savedParaShapeId;
+                    table.lastRecordIndex = j;
+                    tableComplete = true;
+                    break;
+                  }
+
+                  // 빈 텍스트 여부 기록
+                  currentCell.lastWasEmptyText = (cellText.trim().length === 0);
+
+                  // 첫 번째 텍스트가 빈 문자열인지 기록 (마지막 셀 감지용)
+                  if (currentCell.textCount === 1) {
+                    currentCell.firstTextWasEmpty = (cellText.trim().length === 0);
+                    console.log("[TABLE-TEXT] First text in cell - isEmpty:", currentCell.firstTextWasEmpty);
+                  }
+
+                  // HWP 스펙 기반 heading 판단: paraShapeId를 통해 headingType 확인
+                  var isHeading = false;
+                  var paraShapeId = currentCell.lastParaShapeId;
+                  if (paraShapeId !== undefined && paraShapes[paraShapeId]) {
+                    var ps = paraShapes[paraShapeId];
+                    isHeading = ps.isHeading;
+                    console.log("[TABLE-TEXT] ParaShape[" + paraShapeId + "]: attr1=0x" + (ps.attr1 ? ps.attr1.toString(16) : "?") +
+                               ", headingType=" + ps.headingType + ", headingLevel=" + ps.headingLevel + ", isHeading=" + isHeading);
+                  }
+
+                  // 서명 패턴은 유지 (문서 구조상 명확한 표 종료 신호)
                   var isSignature = /상기\s*기재\s*사항|지원자|년\s*\d+\s*월\s*\d+\s*일|\(인\)/.test(cellText.trim());
 
                   if (isHeading || isSignature) {
@@ -1172,13 +1341,16 @@ qx.Class.define("deskweb.util.HwpParser",
                     var gridFillRatio = gridPositionsFilled / totalGridPositions;
                     console.log("[TABLE-TEXT] Current grid fill ratio:", gridFillRatio.toFixed(2), "cells so far:", table.cells.length);
 
-                    if (table.cells.length >= 1 && currentCell.text.trim().length === 0 && gridFillRatio >= 0.7) {
+                    // 그리드가 70% 이상 채워졌으면 heading/signature는 표 밖 텍스트로 처리
+                    if (table.cells.length >= 1 && gridFillRatio >= 0.7) {
                       console.log("[TABLE-TEXT] Treating as OUTSIDE text (grid >= 70% full)");
 
                       var outsideParaShapeId = currentCell.lastParaShapeId;
                       console.log("[TABLE-TEXT] Outside text paraShapeId:", outsideParaShapeId);
 
+                      // 현재 셀에 기존 텍스트가 있으면 저장
                       if (currentCell.text.trim().length > 0) {
+                        console.log("[TABLE-TEXT] Saving current cell with existing text:", currentCell.text.trim().substring(0, 30));
                         table.cells.push(currentCell);
                       }
                       currentCell = null;
@@ -1190,7 +1362,7 @@ qx.Class.define("deskweb.util.HwpParser",
                       tableComplete = true;
                       break;
                     } else {
-                      console.log("[TABLE-TEXT] Grid not full enough or cell has content, treating as cell content");
+                      console.log("[TABLE-TEXT] Grid not full enough (" + (gridFillRatio * 100).toFixed(1) + "%), treating as cell content");
                     }
                   }
 
@@ -1268,6 +1440,13 @@ qx.Class.define("deskweb.util.HwpParser",
               console.log("[TABLE-SUMMARY] Extracted", table.cells.length, "cells for", rows, "x", cols, "table");
               console.log("[TABLE-SUMMARY] Grid positions filled:", gridPositionsFilled, "/", totalGridPositions);
               console.log("[TABLE-SUMMARY] Last record index:", table.lastRecordIndex);
+              console.log("[TABLE-SUMMARY] outsideText:", table.outsideText ? table.outsideText.substring(0, 50) : "(none)");
+              console.log("[TABLE-SUMMARY] mergeInfo:", table.mergeInfo ? JSON.stringify(table.mergeInfo) : "(none)");
+              console.log("[TABLE-SUMMARY] Cell texts:");
+              for (var dbgCell = 0; dbgCell < table.cells.length; dbgCell++) {
+                var dc = table.cells[dbgCell];
+                console.log("[TABLE-SUMMARY]   [" + dbgCell + "] (" + dc.row + "," + dc.col + ") span(" + dc.rowSpan + "x" + dc.colSpan + "): " + dc.text.substring(0, 40));
+              }
               console.log("[TABLE-SUMMARY] ========================================");
 
               found = true;
@@ -1350,6 +1529,22 @@ qx.Class.define("deskweb.util.HwpParser",
         var alignments = ['justify', 'left', 'right', 'center', 'distribute', 'divide'];
         var alignment = alignments[alignType] || 'left';
 
+        // HWP 스펙 표 44: 문단 모양 속성1
+        // bit 23~24: 문단 머리 모양 종류 (0=없음, 1=개요, 2=번호, 3=글머리표)
+        // bit 25~27: 문단 수준 (1수준~7수준)
+        var headingType = (attr1 >> 23) & 0x03;  // 0=없음, 1=개요, 2=번호, 3=글머리표
+        var headingLevel = (attr1 >> 25) & 0x07; // 0~6 (1수준~7수준)
+
+        // headingType이 1(개요) 또는 2(번호)이면 heading으로 판단
+        var isHeading = (headingType === 1 || headingType === 2);
+
+        console.log("[PARA_SHAPE] attr1=0x" + attr1.toString(16) + " (" + attr1 + ")" +
+                   ", bit23-24=" + ((attr1 >> 23) & 0x03) +
+                   ", bit25-27=" + ((attr1 >> 25) & 0x07) +
+                   ", headingType=" + headingType +
+                   ", headingLevel=" + headingLevel +
+                   ", isHeading=" + isHeading);
+
         return {
           alignment: alignment,
           leftMargin: leftMargin,
@@ -1358,7 +1553,10 @@ qx.Class.define("deskweb.util.HwpParser",
           spacingTop: spacingTop,
           spacingBottom: spacingBottom,
           lineSpacing: lineSpacing,
-          attr1: attr1
+          attr1: attr1,
+          headingType: headingType,
+          headingLevel: headingLevel,
+          isHeading: isHeading
         };
       } catch (e) {
         console.error("[HwpParser] Error parsing PARA_SHAPE:", e);
