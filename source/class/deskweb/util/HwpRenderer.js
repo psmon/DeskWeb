@@ -334,7 +334,7 @@ qx.Class.define("deskweb.util.HwpRenderer",
 
       console.log("[RENDER-TABLE] ========================================");
       console.log("[RENDER-TABLE] Rendering table:", tableData.rows, "x", tableData.cols, "with", tableData.cells.length, "cells");
-      console.log("[RENDER-TABLE] Input cell data:");
+      console.log("[RENDER-TABLE] Input cell data (from Parser with colspan/rowspan):");
       for (var debugIdx = 0; debugIdx < tableData.cells.length; debugIdx++) {
         var debugCell = tableData.cells[debugIdx];
         console.log("[RENDER-TABLE]   Cell", debugIdx + 1, "at (" + debugCell.row + "," + debugCell.col + ")",
@@ -342,8 +342,16 @@ qx.Class.define("deskweb.util.HwpRenderer",
                    (debugCell.text || "(empty)").substring(0, 30));
       }
 
-      // Detect merge info
-      var mergeInfo = this._detectMergeInfo(tableData);
+      // Parser에서 전달된 mergeInfo 사용
+      var mergeInfo = tableData.mergeInfo || [];
+      if (mergeInfo.length > 0) {
+        console.log("[RENDER-TABLE] MergeInfo from Parser:", mergeInfo.length, "entries");
+        for (var mi = 0; mi < mergeInfo.length; mi++) {
+          console.log("[RENDER-TABLE]   Merge[" + mi + "]: row=" + mergeInfo[mi].row +
+                     ", col=" + mergeInfo[mi].col + ", colSpan=" + mergeInfo[mi].colSpan +
+                     ", rowSpan=" + mergeInfo[mi].rowSpan);
+        }
+      }
 
       // Create grid
       var grid = [];
@@ -437,17 +445,20 @@ qx.Class.define("deskweb.util.HwpRenderer",
         console.log("[RENDER-TABLE]   Row " + r + ": " + rowState);
       }
 
-      // Apply merge info
+      // 병합 정보 후처리: Parser에서 전달받은 mergeInfo를 grid에 적용
       if (mergeInfo && mergeInfo.length > 0) {
-        console.log("[RENDER-TABLE] Applying merge info:", mergeInfo.length, "merges");
+        console.log("[RENDER-TABLE] Applying mergeInfo:", mergeInfo.length, "merges");
         for (var mi = 0; mi < mergeInfo.length; mi++) {
           var merge = mergeInfo[mi];
-          console.log("[RENDER-TABLE]   Merge: (" + merge.row + "," + merge.col + ") rowSpan=" + merge.rowSpan + ", colSpan=" + merge.colSpan);
+          console.log("[RENDER-TABLE]   Processing merge: (" + merge.row + "," + merge.col + ") " +
+                     "rowSpan=" + merge.rowSpan + ", colSpan=" + merge.colSpan);
 
+          // 병합 대상 셀 찾기
           var mainCell = grid[merge.row] && grid[merge.row][merge.col];
 
           if (mainCell === null) {
-            console.log("[RENDER-TABLE]     Creating empty cell object for merge at (" + merge.row + "," + merge.col + ")");
+            // 빈 셀인 경우 빈 셀 객체 생성
+            console.log("[RENDER-TABLE]     Creating empty cell for merge at (" + merge.row + "," + merge.col + ")");
             mainCell = {
               row: merge.row,
               col: merge.col,
@@ -459,15 +470,16 @@ qx.Class.define("deskweb.util.HwpRenderer",
           }
 
           if (mainCell && mainCell !== 'occupied' && mainCell !== 'merged') {
+            // 메인 셀에 병합 정보 적용
             mainCell.rowSpan = merge.rowSpan;
             mainCell.colSpan = merge.colSpan;
             mainCell.isMergeMain = true;
 
+            // 병합된 영역의 나머지 셀들을 'merged'로 표시
             for (var mr = merge.row; mr < merge.row + merge.rowSpan && mr < tableData.rows; mr++) {
               for (var mc = merge.col; mc < merge.col + merge.colSpan && mc < tableData.cols; mc++) {
-                if (mr === merge.row && mc === merge.col) continue;
-                console.log("[RENDER-TABLE]     Marking (" + mr + "," + mc + ") as merged (was: " +
-                  (grid[mr][mc] === null ? "null" : (typeof grid[mr][mc] === 'string' ? grid[mr][mc] : "cell")) + ")");
+                if (mr === merge.row && mc === merge.col) continue; // 메인 셀 제외
+                console.log("[RENDER-TABLE]     Marking (" + mr + "," + mc + ") as merged");
                 grid[mr][mc] = 'merged';
               }
             }
@@ -527,6 +539,7 @@ qx.Class.define("deskweb.util.HwpRenderer",
               td.textContent = cellText;
             }
 
+            // colspan/rowspan 적용 (Parser 기본값 또는 mergeInfo 후처리 결과)
             if (cellData.colSpan && cellData.colSpan > 1) {
               td.setAttribute('colspan', cellData.colSpan);
               console.log("[RENDER-TABLE] Applied colspan=" + cellData.colSpan + " to cell (" + row + "," + col + ")");
@@ -536,6 +549,7 @@ qx.Class.define("deskweb.util.HwpRenderer",
               console.log("[RENDER-TABLE] Applied rowspan=" + cellData.rowSpan + " to cell (" + row + "," + col + ")");
             }
 
+            // 병합 메인 셀 스타일 적용
             if (cellData.isMergeMain) {
               td.style.verticalAlign = 'middle';
               td.style.textAlign = 'center';
@@ -555,50 +569,6 @@ qx.Class.define("deskweb.util.HwpRenderer",
       console.log("[RENDER-TABLE] ========================================");
 
       return table;
-    },
-
-    /**
-     * Detect merge info based on table pattern
-     * @private
-     */
-    _detectMergeInfo: function(tableData) {
-      var mergeInfo = [];
-
-      // Detect personal info table pattern (3x5)
-      if (tableData.rows === 3 && tableData.cols === 5) {
-        var hasNameLabel = false;
-        var hasPhoneLabel = false;
-        var hasAddressLabel = false;
-
-        for (var i = 0; i < tableData.cells.length; i++) {
-          var cellText = (tableData.cells[i].text || '').trim();
-          if (cellText.indexOf('성') >= 0 && cellText.indexOf('명') >= 0) hasNameLabel = true;
-          if (cellText.indexOf('휴대') >= 0 || cellText.indexOf('전화') >= 0) hasPhoneLabel = true;
-          if (cellText.indexOf('주') >= 0 && cellText.indexOf('소') >= 0) hasAddressLabel = true;
-        }
-
-        if (hasNameLabel && (hasPhoneLabel || hasAddressLabel)) {
-          console.log("[RENDER-TABLE] Detected 'personal info' table pattern");
-
-          // Photo area: rowSpan=3
-          mergeInfo.push({
-            row: 0,
-            col: 0,
-            rowSpan: 3,
-            colSpan: 1
-          });
-
-          // Address area: colSpan=3
-          mergeInfo.push({
-            row: 2,
-            col: 2,
-            rowSpan: 1,
-            colSpan: 3
-          });
-        }
-      }
-
-      return mergeInfo;
     }
   }
 });

@@ -1022,9 +1022,10 @@ qx.Class.define("deskweb.util.HwpParser",
                       var cellView = new DataView(rec.data.buffer, rec.data.byteOffset, rec.data.byteLength);
 
                       console.log("[TABLE-CELL] Raw LIST_HEADER data (" + rec.data.length + " bytes):",
-                                 Array.from(rec.data.slice(0, Math.min(32, rec.data.length)))
+                                 Array.from(rec.data.slice(0, Math.min(48, rec.data.length)))
                                  .map(function(b) { return "0x" + b.toString(16).padStart(2, '0'); }).join(' '));
 
+                      // 기존 로직 유지: offset 6부터 셀 위치 정보 파싱
                       var cellAttrOffset = 6;
 
                       if (cellAttrOffset + 8 <= rec.data.length) {
@@ -1033,6 +1034,7 @@ qx.Class.define("deskweb.util.HwpParser",
                         var hwpColSpan = cellView.getUint16(cellAttrOffset + 4, true);
                         var hwpRowSpan = cellView.getUint16(cellAttrOffset + 6, true);
 
+                        // 기존 매핑 로직 유지 (잘 작동하던 방식)
                         var parsedCol = hwpRow;
                         var parsedRow = hwpColSpan;
                         var parsedColSpan = hwpRowSpan >= 1 ? hwpRowSpan : 1;
@@ -1042,6 +1044,33 @@ qx.Class.define("deskweb.util.HwpParser",
                                    ", hwpColSpan=" + hwpColSpan + ", hwpRowSpan=" + hwpRowSpan);
                         console.log("[TABLE-CELL] NEW mapping: col=" + parsedCol + ", row=" + parsedRow +
                                    ", colSpan=" + parsedColSpan + ", rowSpan=" + parsedRowSpan);
+
+                        // HWP 스펙 기반 병합 정보 수집 (offset 8부터)
+                        // LIST_HEADER 구조: 문단 리스트 헤더(8바이트) + 셀 속성(26바이트)
+                        // 셀 속성 (표 80): col(2) + row(2) + colSpan(2) + rowSpan(2) + ...
+                        if (rec.data.length >= 16) {
+                          var specOffset = 8;  // 셀 속성 시작점
+                          var specCol = cellView.getUint16(specOffset, true);
+                          var specRow = cellView.getUint16(specOffset + 2, true);
+                          var specColSpan = cellView.getUint16(specOffset + 4, true);
+                          var specRowSpan = cellView.getUint16(specOffset + 6, true);
+
+                          console.log("[TABLE-CELL] Spec-based (offset 8): col=" + specCol + ", row=" + specRow +
+                                     ", colSpan=" + specColSpan + ", rowSpan=" + specRowSpan);
+
+                          // 병합 정보가 있으면 저장 (colSpan > 1 또는 rowSpan > 1)
+                          if (specColSpan > 1 || specRowSpan > 1) {
+                            if (!table.mergeInfo) table.mergeInfo = [];
+                            table.mergeInfo.push({
+                              row: specRow,
+                              col: specCol,
+                              colSpan: specColSpan >= 1 ? specColSpan : 1,
+                              rowSpan: specRowSpan >= 1 ? specRowSpan : 1
+                            });
+                            console.log("[TABLE-CELL] ★ Added mergeInfo: row=" + specRow + ", col=" + specCol +
+                                       ", colSpan=" + specColSpan + ", rowSpan=" + specRowSpan);
+                          }
+                        }
 
                         var isValidPos = (parsedCol >= 0 && parsedCol < cols &&
                                          parsedRow >= 0 && parsedRow < rows);
