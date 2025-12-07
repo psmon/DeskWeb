@@ -219,6 +219,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openAskBotWindow();
           }
+        },
+        {
+          id: "tetris",
+          label: "3D Tetris",
+          icon: "deskweb/images/tetris.svg",
+          defaultLeft: 120,
+          defaultTop: 120,
+          action: function() {
+            this._openTetrisWindow();
+          }
         }
       ];
 
@@ -319,6 +329,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "hwpviewer":
           this._openHWPViewerWindow(null);
+          break;
+        case "tetris":
+          this._openTetrisWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -505,6 +518,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened HWP Viewer with file:", filePath);
+    },
+
+    /**
+     * Open 3D Tetris window
+     */
+    _openTetrisWindow: function() {
+      var win = new deskweb.ui.TetrisWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened 3D Tetris game");
     },
 
     /**

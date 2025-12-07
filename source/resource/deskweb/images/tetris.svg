@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="blockGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0088aa;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6600;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#cc4400;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffff00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ccaa00;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ff00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00aa00;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff0000;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#aa0000;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0000ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#000088;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blockGrad7" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#aa00aa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#660066;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect x="2" y="2" width="44" height="44" rx="4" fill="#1a1a2e" stroke="#6366f1" stroke-width="1"/>
+
+  <!-- Grid lines -->
+  <g stroke="#3a506b" stroke-width="0.5" opacity="0.3">
+    <line x1="10" y1="2" x2="10" y2="46"/>
+    <line x1="18" y1="2" x2="18" y2="46"/>
+    <line x1="26" y1="2" x2="26" y2="46"/>
+    <line x1="34" y1="2" x2="34" y2="46"/>
+    <line x1="42" y1="2" x2="42" y2="46"/>
+    <line x1="2" y1="10" x2="46" y2="10"/>
+    <line x1="2" y1="18" x2="46" y2="18"/>
+    <line x1="2" y1="26" x2="46" y2="26"/>
+    <line x1="2" y1="34" x2="46" y2="34"/>
+    <line x1="2" y1="42" x2="46" y2="42"/>
+  </g>
+
+  <!-- T-piece (purple) falling -->
+  <g>
+    <rect x="18" y="4" width="7" height="7" rx="1" fill="url(#blockGrad7)" stroke="#000" stroke-width="0.5"/>
+    <rect x="11" y="11" width="7" height="7" rx="1" fill="url(#blockGrad7)" stroke="#000" stroke-width="0.5"/>
+    <rect x="18" y="11" width="7" height="7" rx="1" fill="url(#blockGrad7)" stroke="#000" stroke-width="0.5"/>
+    <rect x="25" y="11" width="7" height="7" rx="1" fill="url(#blockGrad7)" stroke="#000" stroke-width="0.5"/>
+  </g>
+
+  <!-- Stacked blocks at bottom -->
+  <!-- Row 1 (bottom) -->
+  <rect x="4" y="38" width="7" height="7" rx="1" fill="url(#blockGrad1)" stroke="#000" stroke-width="0.5"/>
+  <rect x="11" y="38" width="7" height="7" rx="1" fill="url(#blockGrad2)" stroke="#000" stroke-width="0.5"/>
+  <rect x="18" y="38" width="7" height="7" rx="1" fill="url(#blockGrad3)" stroke="#000" stroke-width="0.5"/>
+  <rect x="25" y="38" width="7" height="7" rx="1" fill="url(#blockGrad4)" stroke="#000" stroke-width="0.5"/>
+  <rect x="32" y="38" width="7" height="7" rx="1" fill="url(#blockGrad5)" stroke="#000" stroke-width="0.5"/>
+  <rect x="39" y="38" width="7" height="7" rx="1" fill="url(#blockGrad6)" stroke="#000" stroke-width="0.5"/>
+
+  <!-- Row 2 -->
+  <rect x="4" y="31" width="7" height="7" rx="1" fill="url(#blockGrad6)" stroke="#000" stroke-width="0.5"/>
+  <rect x="11" y="31" width="7" height="7" rx="1" fill="url(#blockGrad1)" stroke="#000" stroke-width="0.5"/>
+  <rect x="25" y="31" width="7" height="7" rx="1" fill="url(#blockGrad2)" stroke="#000" stroke-width="0.5"/>
+  <rect x="39" y="31" width="7" height="7" rx="1" fill="url(#blockGrad3)" stroke="#000" stroke-width="0.5"/>
+
+  <!-- Row 3 -->
+  <rect x="4" y="24" width="7" height="7" rx="1" fill="url(#blockGrad4)" stroke="#000" stroke-width="0.5"/>
+  <rect x="39" y="24" width="7" height="7" rx="1" fill="url(#blockGrad5)" stroke="#000" stroke-width="0.5"/>
+
+  <!-- 3D effect highlights -->
+  <g fill="rgba(255,255,255,0.3)">
+    <rect x="4" y="38" width="7" height="2"/>
+    <rect x="11" y="38" width="7" height="2"/>
+    <rect x="18" y="38" width="7" height="2"/>
+    <rect x="25" y="38" width="7" height="2"/>
+    <rect x="32" y="38" width="7" height="2"/>
+    <rect x="39" y="38" width="7" height="2"/>
+    <rect x="18" y="4" width="7" height="2"/>
+    <rect x="11" y="11" width="7" height="2"/>
+    <rect x="18" y="11" width="7" height="2"/>
+    <rect x="25" y="11" width="7" height="2"/>
+  </g>
+</svg>

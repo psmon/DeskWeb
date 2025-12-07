@@ -74,6 +74,7 @@ qx.Class.define("deskweb.ui.StartMenu", {
     this._addMenuItem("Notepad", "text-editor", "notepad");
     this._addMenuItem("Solitaire", "games-card", "solitaire");
     this._addMenuItem("Minesweeper", "minesweeper", "minesweeper");
+    this._addMenuItem("3D Tetris", "tetris", "tetris");
     this._addMenuItem("AI ChatBot", "ai-chatbot", "chatbot");
     this._addMenuItem("ASK BOT", "askbot", "askbot");
     this._addMenuItem("Canvas Demo", "canvas-demo", "canvas-demo");
