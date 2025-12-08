@@ -56,6 +56,12 @@ qx.Class.define("deskweb.util.FileExtensionRegistry", {
       // HWP files -> HWP Viewer
       this.registerExtension("hwp", "hwpviewer", "HWP Viewer");
 
+      // Spreadsheet files -> Calc
+      this.registerExtension("ods", "calc", "Calc");
+      this.registerExtension("xlsx", "calc", "Calc");
+      this.registerExtension("xls", "calc", "Calc");
+      this.registerExtension("csv", "calc", "Calc");
+
       // Future extensions can be added here
       // this.registerExtension("jpg", "imageviewer", "Image Viewer");
       // this.registerExtension("png", "imageviewer", "Image Viewer");
@@ -213,7 +219,11 @@ qx.Class.define("deskweb.util.FileExtensionRegistry", {
         'html': 'icon/16/mimetypes/text-html.png',
         'css': 'icon/16/mimetypes/text-css.png',
         'js': 'icon/16/mimetypes/text-javascript.png',
-        'hwp': 'deskweb/images/hwp.svg'
+        'hwp': 'deskweb/images/hwp.svg',
+        'ods': 'deskweb/images/calc.svg',
+        'xlsx': 'deskweb/images/calc.svg',
+        'xls': 'deskweb/images/calc.svg',
+        'csv': 'deskweb/images/calc.svg'
       };
 
       return iconMap[extension] || 'icon/16/mimetypes/office-document.png';

@@ -229,6 +229,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openTetrisWindow();
           }
+        },
+        {
+          id: "calc",
+          label: "Calc",
+          icon: "deskweb/images/calc.svg",
+          defaultLeft: 120,
+          defaultTop: 220,
+          action: function() {
+            this._openCalcWindow();
+          }
         }
       ];
 
@@ -333,6 +343,9 @@ qx.Class.define("deskweb.Application",
         case "tetris":
           this._openTetrisWindow();
           break;
+        case "calc":
+          this._openCalcWindow();
+          break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
           break;
@@ -407,6 +420,10 @@ qx.Class.define("deskweb.Application",
 
         case "hwpviewer":
           this._openHWPViewerWindow(filePath);
+          break;
+
+        case "calc":
+          this._openCalcWindow(filePath);
           break;
 
         default:
@@ -533,6 +550,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened 3D Tetris game");
+    },
+
+    /**
+     * Open Calc window
+     */
+    _openCalcWindow: function(filePath) {
+      var win = new deskweb.ui.CalcWindow(filePath);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Calc spreadsheet");
     },
 
     /**

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Main document body with green tint -->
+  <rect x="10" y="6" width="44" height="52" fill="#FFFFFF" stroke="#333333" stroke-width="2" rx="2"/>
+
+  <!-- Header bar (OpenOffice Calc green) -->
+  <rect x="10" y="6" width="44" height="8" fill="#339933" stroke="#333333" stroke-width="2" rx="2"/>
+
+  <!-- Column headers background -->
+  <rect x="10" y="14" width="44" height="6" fill="#E8F5E9"/>
+  <line x1="10" y1="20" x2="54" y2="20" stroke="#90CAF9" stroke-width="1"/>
+
+  <!-- Column letters -->
+  <text x="18" y="18.5" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">A</text>
+  <text x="32" y="18.5" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">B</text>
+  <text x="46" y="18.5" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">C</text>
+
+  <!-- Row numbers area -->
+  <rect x="10" y="20" width="6" height="38" fill="#E8F5E9"/>
+
+  <!-- Row numbers -->
+  <text x="13" y="28" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">1</text>
+  <text x="13" y="36" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">2</text>
+  <text x="13" y="44" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">3</text>
+  <text x="13" y="52" font-family="Arial" font-size="5" fill="#666666" text-anchor="middle">4</text>
+
+  <!-- Grid lines - horizontal -->
+  <line x1="16" y1="30" x2="54" y2="30" stroke="#CCCCCC" stroke-width="0.5"/>
+  <line x1="16" y1="38" x2="54" y2="38" stroke="#CCCCCC" stroke-width="0.5"/>
+  <line x1="16" y1="46" x2="54" y2="46" stroke="#CCCCCC" stroke-width="0.5"/>
+  <line x1="16" y1="54" x2="54" y2="54" stroke="#CCCCCC" stroke-width="0.5"/>
+
+  <!-- Grid lines - vertical -->
+  <line x1="25" y1="20" x2="25" y2="58" stroke="#CCCCCC" stroke-width="0.5"/>
+  <line x1="39" y1="20" x2="39" y2="58" stroke="#CCCCCC" stroke-width="0.5"/>
+
+  <!-- Sample cell content -->
+  <text x="20" y="26" font-family="Arial" font-size="4" fill="#333333">100</text>
+  <text x="34" y="26" font-family="Arial" font-size="4" fill="#333333">200</text>
+  <text x="48" y="26" font-family="Arial" font-size="4" fill="#339933">=SUM</text>
+
+  <!-- Selected cell highlight -->
+  <rect x="16" y="22" width="9" height="8" fill="none" stroke="#339933" stroke-width="2"/>
+
+  <!-- Chart icon overlay -->
+  <g transform="translate(38, 40)">
+    <rect x="0" y="8" width="4" height="10" fill="#4CAF50"/>
+    <rect x="5" y="4" width="4" height="14" fill="#8BC34A"/>
+    <rect x="10" y="0" width="4" height="18" fill="#CDDC39"/>
+  </g>
+</svg>
