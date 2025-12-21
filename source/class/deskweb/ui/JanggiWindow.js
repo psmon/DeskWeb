@@ -679,15 +679,16 @@ qx.Class.define("deskweb.ui.JanggiWindow",
      * Handle settings button
      */
     __onSettings: function() {
+      var self = this;
       var win = new qx.ui.window.Window("Janggi Settings");
       win.setLayout(new qx.ui.layout.VBox(10));
       win.set({
-        width: 350,
-        height: 400,
+        width: 450,
+        height: 550,
         modal: true,
         showMinimize: false,
         showMaximize: false,
-        contentPadding: 20
+        contentPadding: 15
       });
 
       // Camera settings
@@ -743,6 +744,32 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       cameraGroup.add(tiltContainer);
       cameraGroup.add(resetCameraBtn);
 
+      // AI Strategy Settings
+      var strategyGroup = new qx.ui.groupbox.GroupBox("AI 전략 설정");
+      strategyGroup.setLayout(new qx.ui.layout.VBox(8));
+
+      // Load current strategy
+      var strategy = deskweb.game.JanggiAI.loadStrategy();
+
+      // Strategy button to open detailed editor
+      var strategyBtn = new qx.ui.form.Button("전략 프롬프트 편집");
+      strategyBtn.addListener("execute", function() {
+        self.__openStrategyEditor();
+      });
+
+      var strategyInfo = new qx.ui.basic.Label(
+        "AI의 전략 지침을 수정할 수 있습니다.\n" +
+        "초반/중반/종반 전략과 성격을 커스터마이징하세요."
+      );
+      strategyInfo.set({
+        rich: true,
+        textColor: "#888",
+        font: qx.bom.Font.fromString("11px Arial")
+      });
+
+      strategyGroup.add(strategyInfo);
+      strategyGroup.add(strategyBtn);
+
       // Game info
       var infoGroup = new qx.ui.groupbox.GroupBox("Game Info");
       infoGroup.setLayout(new qx.ui.layout.VBox(5));
@@ -776,6 +803,7 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       });
 
       win.add(cameraGroup);
+      win.add(strategyGroup);
       win.add(infoGroup, {flex: 1});
       win.add(closeBtn);
 
@@ -1028,6 +1056,140 @@ qx.Class.define("deskweb.ui.JanggiWindow",
 
       win.add(scroll, {flex: 1});
       win.add(closeBtn);
+
+      var app = qx.core.Init.getApplication();
+      app.getRoot().add(win, {left: 100, top: 50});
+      win.center();
+      win.open();
+    },
+
+    /**
+     * Open AI Strategy Editor window
+     */
+    __openStrategyEditor: function() {
+      var self = this;
+
+      var win = new qx.ui.window.Window("AI 전략 프롬프트 편집");
+      win.setLayout(new qx.ui.layout.VBox(10));
+      win.set({
+        width: 550,
+        height: 600,
+        modal: true,
+        showMinimize: false,
+        showMaximize: false,
+        contentPadding: 15
+      });
+
+      // Load current strategy
+      var strategy = deskweb.game.JanggiAI.loadStrategy();
+
+      var scroll = new qx.ui.container.Scroll();
+      var content = new qx.ui.container.Composite(new qx.ui.layout.VBox(15));
+      content.setPadding(10);
+
+      // Info label
+      var infoLabel = new qx.ui.basic.Label(
+        "<b>AI 전략 지침을 수정하세요</b><br>" +
+        "<span style='color:#888;'>각 단계별 전략과 AI 성격을 커스터마이징할 수 있습니다.<br>" +
+        "게임 진행에 필요한 형식(좌표, 보드 상태 등)은 수정할 수 없습니다.</span>"
+      );
+      infoLabel.set({
+        rich: true,
+        textColor: "#c4a882"
+      });
+      content.add(infoLabel);
+
+      // Opening strategy
+      var openingGroup = new qx.ui.groupbox.GroupBox("초반 전략 (Opening)");
+      openingGroup.setLayout(new qx.ui.layout.VBox(5));
+      var openingArea = new qx.ui.form.TextArea(strategy.opening);
+      openingArea.set({ height: 60, wrap: true });
+      openingGroup.add(openingArea);
+      content.add(openingGroup);
+
+      // Midgame strategy
+      var midgameGroup = new qx.ui.groupbox.GroupBox("중반 전략 (Midgame)");
+      midgameGroup.setLayout(new qx.ui.layout.VBox(5));
+      var midgameArea = new qx.ui.form.TextArea(strategy.midgame);
+      midgameArea.set({ height: 60, wrap: true });
+      midgameGroup.add(midgameArea);
+      content.add(midgameGroup);
+
+      // Endgame strategy
+      var endgameGroup = new qx.ui.groupbox.GroupBox("종반 전략 (Endgame)");
+      endgameGroup.setLayout(new qx.ui.layout.VBox(5));
+      var endgameArea = new qx.ui.form.TextArea(strategy.endgame);
+      endgameArea.set({ height: 60, wrap: true });
+      endgameGroup.add(endgameArea);
+      content.add(endgameGroup);
+
+      // General strategy
+      var generalGroup = new qx.ui.groupbox.GroupBox("일반 전략 (Always Applied)");
+      generalGroup.setLayout(new qx.ui.layout.VBox(5));
+      var generalArea = new qx.ui.form.TextArea(strategy.general);
+      generalArea.set({ height: 60, wrap: true });
+      generalGroup.add(generalArea);
+      content.add(generalGroup);
+
+      // Personality
+      var personalityGroup = new qx.ui.groupbox.GroupBox("AI 성격 (Personality)");
+      personalityGroup.setLayout(new qx.ui.layout.VBox(5));
+      var personalityArea = new qx.ui.form.TextArea(strategy.personality);
+      personalityArea.set({ height: 60, wrap: true });
+      var personalityHint = new qx.ui.basic.Label("AI가 대화할 때의 어조와 스타일을 정의합니다.");
+      personalityHint.set({ textColor: "#888", font: qx.bom.Font.fromString("10px Arial") });
+      personalityGroup.add(personalityArea);
+      personalityGroup.add(personalityHint);
+      content.add(personalityGroup);
+
+      scroll.add(content);
+
+      // Button container
+      var btnContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(10));
+
+      // Save button
+      var saveBtn = new qx.ui.form.Button("저장");
+      saveBtn.set({ width: 80 });
+      saveBtn.addListener("execute", function() {
+        var newStrategy = {
+          opening: openingArea.getValue(),
+          midgame: midgameArea.getValue(),
+          endgame: endgameArea.getValue(),
+          general: generalArea.getValue(),
+          personality: personalityArea.getValue()
+        };
+        deskweb.game.JanggiAI.saveStrategy(newStrategy);
+        self.__addAIMessage("전략이 저장되었습니다. 다음 수부터 적용됩니다!", "system");
+        win.close();
+      });
+
+      // Reset button
+      var resetBtn = new qx.ui.form.Button("초기화");
+      resetBtn.set({ width: 80 });
+      resetBtn.addListener("execute", function() {
+        var defaults = deskweb.game.JanggiAI.resetStrategy();
+        openingArea.setValue(defaults.opening);
+        midgameArea.setValue(defaults.midgame);
+        endgameArea.setValue(defaults.endgame);
+        generalArea.setValue(defaults.general);
+        personalityArea.setValue(defaults.personality);
+        self.__addAIMessage("전략이 기본값으로 초기화되었습니다.", "system");
+      });
+
+      // Cancel button
+      var cancelBtn = new qx.ui.form.Button("취소");
+      cancelBtn.set({ width: 80 });
+      cancelBtn.addListener("execute", function() {
+        win.close();
+      });
+
+      btnContainer.add(new qx.ui.core.Spacer(), {flex: 1});
+      btnContainer.add(resetBtn);
+      btnContainer.add(saveBtn);
+      btnContainer.add(cancelBtn);
+
+      win.add(scroll, {flex: 1});
+      win.add(btnContainer);
 
       var app = qx.core.Init.getApplication();
       app.getRoot().add(win, {left: 100, top: 50});

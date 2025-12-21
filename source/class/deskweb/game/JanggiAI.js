@@ -45,6 +45,60 @@ qx.Class.define("deskweb.game.JanggiAI",
     // LLM API endpoint
     API_URL: "https://mcp.webnori.com/api/llm/chat/completions",
 
+    // LocalStorage key for strategy settings
+    STRATEGY_STORAGE_KEY: "janggi_ai_strategy",
+
+    // Default strategy prompt template (editable by user)
+    DEFAULT_STRATEGY: {
+      opening: "초반: 마, 상 활성화하고 포 배치에 집중하세요. 중앙 통제가 중요합니다.",
+      midgame: "중반: 적극적으로 공격하세요. 차와 포로 왕을 압박하고 약한 말을 노리세요.",
+      endgame: "종반: 외통수를 만들어야 합니다! 연속 장군을 시도하고 도망갈 곳을 막으세요.",
+      general: "장군 수가 있으면 우선 시도하세요! 말을 잡을 기회가 있으면 적극 활용하세요.",
+      personality: "자신감 있고 존중하는 태도로, 상황에 맞게 유머러스하거나 진지하게 대화하세요."
+    },
+
+    /**
+     * Load strategy from localStorage
+     * @return {Object} Strategy object
+     */
+    loadStrategy: function() {
+      try {
+        var saved = localStorage.getItem(this.STRATEGY_STORAGE_KEY);
+        if (saved) {
+          var parsed = JSON.parse(saved);
+          // Merge with defaults to ensure all fields exist
+          return Object.assign({}, this.DEFAULT_STRATEGY, parsed);
+        }
+      } catch (e) {
+        console.warn("[JanggiAI] Failed to load strategy:", e);
+      }
+      return Object.assign({}, this.DEFAULT_STRATEGY);
+    },
+
+    /**
+     * Save strategy to localStorage
+     * @param {Object} strategy Strategy object
+     */
+    saveStrategy: function(strategy) {
+      try {
+        localStorage.setItem(this.STRATEGY_STORAGE_KEY, JSON.stringify(strategy));
+        console.log("[JanggiAI] Strategy saved");
+        return true;
+      } catch (e) {
+        console.error("[JanggiAI] Failed to save strategy:", e);
+        return false;
+      }
+    },
+
+    /**
+     * Reset strategy to defaults
+     */
+    resetStrategy: function() {
+      localStorage.removeItem(this.STRATEGY_STORAGE_KEY);
+      console.log("[JanggiAI] Strategy reset to defaults");
+      return Object.assign({}, this.DEFAULT_STRATEGY);
+    },
+
     // AI personality comments based on situation
     COMMENTS: {
       greeting: [
@@ -231,6 +285,11 @@ IMPORTANT: Always respond with exactly 3 lines. The move must be from the valid 
 
       var situationDesc = this.__buildSituationDescription(situation);
 
+      // Load user's custom strategy
+      var strategy = deskweb.game.JanggiAI.loadStrategy();
+      var phaseStrategy = phase === "opening" ? strategy.opening :
+                          (phase === "midgame" ? strategy.midgame : strategy.endgame);
+
       return `## 현재 게임 상황 (${phaseKor})
 ${situationDesc}
 
@@ -247,10 +306,8 @@ ${boardState}
 ${history}
 
 ## 전략 지침:
-- ${phase === "opening" ? "초반: 마, 상 활성화, 포 배치" : ""}
-- ${phase === "midgame" ? "중반: 적극적 공격, 차와 포로 왕 압박" : ""}
-- ${phase === "endgame" ? "종반: 외통수 만들기, 연속 장군 시도" : ""}
-- 장군 수가 있으면 우선 시도하세요!
+- ${phaseStrategy}
+- ${strategy.general}
 
 당신의 수를 선택하고 이유를 설명해주세요.`;
     },
