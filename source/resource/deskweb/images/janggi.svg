@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Background - wooden board texture -->
+  <rect x="4" y="4" width="56" height="56" fill="#D4A574" stroke="#8B4513" stroke-width="2" rx="4"/>
+
+  <!-- Board grid lines -->
+  <line x1="12" y1="12" x2="52" y2="12" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+  <line x1="12" y1="32" x2="52" y2="32" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+  <line x1="12" y1="52" x2="52" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+  <line x1="12" y1="12" x2="12" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+  <line x1="32" y1="12" x2="32" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+  <line x1="52" y1="12" x2="52" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.5"/>
+
+  <!-- Palace diagonals -->
+  <line x1="22" y1="42" x2="42" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.3"/>
+  <line x1="42" y1="42" x2="22" y2="52" stroke="#8B4513" stroke-width="1" opacity="0.3"/>
+
+  <!-- Han (楚) piece - red/green Cho side -->
+  <ellipse cx="22" cy="22" rx="8" ry="7" fill="#E8D4A0" stroke="#228B22" stroke-width="2"/>
+  <text x="22" y="26" text-anchor="middle" font-family="serif" font-size="10" font-weight="bold" fill="#228B22">楚</text>
+
+  <!-- Han (漢) piece - red Han side -->
+  <ellipse cx="42" cy="22" rx="8" ry="7" fill="#E8D4A0" stroke="#B22222" stroke-width="2"/>
+  <text x="42" y="26" text-anchor="middle" font-family="serif" font-size="10" font-weight="bold" fill="#B22222">漢</text>
+
+  <!-- Jol/Byeong pieces -->
+  <ellipse cx="22" cy="42" rx="6" ry="5" fill="#E8D4A0" stroke="#228B22" stroke-width="1.5"/>
+  <text x="22" y="45" text-anchor="middle" font-family="serif" font-size="7" font-weight="bold" fill="#228B22">卒</text>
+
+  <ellipse cx="42" cy="42" rx="6" ry="5" fill="#E8D4A0" stroke="#B22222" stroke-width="1.5"/>
+  <text x="42" y="45" text-anchor="middle" font-family="serif" font-size="7" font-weight="bold" fill="#B22222">兵</text>
+
+  <!-- Decorative corners -->
+  <circle cx="12" cy="12" r="2" fill="#8B4513" opacity="0.6"/>
+  <circle cx="52" cy="12" r="2" fill="#8B4513" opacity="0.6"/>
+  <circle cx="12" cy="52" r="2" fill="#8B4513" opacity="0.6"/>
+  <circle cx="52" cy="52" r="2" fill="#8B4513" opacity="0.6"/>
+</svg>

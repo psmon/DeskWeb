@@ -239,6 +239,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openCalcWindow();
           }
+        },
+        {
+          id: "janggi",
+          label: "Janggi",
+          icon: "deskweb/images/janggi.svg",
+          defaultLeft: 120,
+          defaultTop: 320,
+          action: function() {
+            this._openJanggiWindow();
+          }
         }
       ];
 
@@ -345,6 +355,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "calc":
           this._openCalcWindow();
+          break;
+        case "janggi":
+          this._openJanggiWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -565,6 +578,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened Calc spreadsheet");
+    },
+
+    /**
+     * Open Janggi window
+     */
+    _openJanggiWindow: function() {
+      var win = new deskweb.ui.JanggiWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened Janggi game");
     },
 
     /**
