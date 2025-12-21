@@ -57,6 +57,7 @@ qx.Class.define("deskweb.game.JanggiGame",
     // AI settings
     this.__isAIThinking = false;
     this.__aiDifficulty = "medium"; // easy, medium, hard
+    this.__ai = null; // JanggiAI instance, initialized later
 
     // 3D rendering
     this.__scene = null;
@@ -101,20 +102,26 @@ qx.Class.define("deskweb.game.JanggiGame",
     "aiMoveReady": "qx.event.type.Data",
 
     /** Fired for rendering update */
-    "renderUpdate": "qx.event.type.Event"
+    "renderUpdate": "qx.event.type.Event",
+
+    /** Fired when AI has a message (tactical explanation, taunt) */
+    "aiMessage": "qx.event.type.Data",
+
+    /** Fired when check occurs */
+    "checkOccurred": "qx.event.type.Data"
   },
 
   statics :
   {
-    // Piece types
+    // Piece types (한글 표기)
     PIECES: {
-      KING: { name: "궁", nameHan: "한", nameCho: "초", symbol: "K" },
-      CAR: { name: "차", symbol: "R" },     // Rook-like
-      CANNON: { name: "포", symbol: "C" },  // Cannon
-      HORSE: { name: "마", symbol: "H" },   // Knight-like
-      ELEPHANT: { name: "상", symbol: "E" }, // Elephant
-      GUARD: { name: "사", symbol: "G" },   // Guard/Advisor
-      SOLDIER: { name: "졸", nameHan: "졸", nameCho: "병", symbol: "S" } // Pawn-like
+      KING: { name: "왕", nameHan: "초", nameCho: "한", symbol: "K", korName: "왕/장" },
+      CAR: { name: "차", symbol: "R", korName: "차" },     // Rook-like
+      CANNON: { name: "포", symbol: "C", korName: "포" },  // Cannon
+      HORSE: { name: "마", symbol: "H", korName: "마" },   // Knight-like
+      ELEPHANT: { name: "상", symbol: "E", korName: "상" }, // Elephant
+      GUARD: { name: "사", symbol: "G", korName: "사" },   // Guard/Advisor
+      SOLDIER: { name: "졸", nameHan: "졸", nameCho: "병", symbol: "S", korName: "졸/병" } // Pawn-like
     },
 
     // Palace boundaries
@@ -494,9 +501,9 @@ qx.Class.define("deskweb.game.JanggiGame",
 
       var name = pieceData.name;
       if (piece.type === "KING") {
-        name = piece.team === "cho" ? "楚" : "漢";
+        name = piece.team === "cho" ? "한" : "초";  // 한글로 변경
       } else if (piece.type === "SOLDIER") {
-        name = piece.team === "cho" ? "兵" : "卒";
+        name = piece.team === "cho" ? "병" : "졸";  // 한글로 변경
       }
       ctx.fillText(name, 64, 64);
 
@@ -1203,6 +1210,17 @@ qx.Class.define("deskweb.game.JanggiGame",
       // Switch turns
       this.__currentPlayer = this.__currentPlayer === "cho" ? "han" : "cho";
 
+      // Check if opponent's king is now in check
+      var opponentInCheck = this.__isInCheck(this.__currentPlayer);
+      if (opponentInCheck) {
+        console.log("[JanggiGame] 장군! (Check!)");
+        this.fireDataEvent("checkOccurred", {
+          checker: piece.team,
+          checked: this.__currentPlayer,
+          piece: piece
+        });
+      }
+
       // Save game state
       this.__saveGameState();
 
@@ -1210,39 +1228,48 @@ qx.Class.define("deskweb.game.JanggiGame",
         piece: piece,
         from: { row: fromRow, col: fromCol },
         to: { row: toRow, col: toCol },
-        captured: captured
+        captured: captured,
+        isCheck: opponentInCheck
       });
 
       this.fireEvent("gameStateChange");
 
-      console.log("[JanggiGame] Move:", piece.type, "from", fromRow, fromCol, "to", toRow, toCol);
+      console.log("[JanggiGame] Move:", piece.type, "from", fromRow, fromCol, "to", toRow, toCol, opponentInCheck ? "(장군!)" : "");
     },
 
     /**
-     * AI's turn
+     * AI's turn - uses JanggiAI for LLM-based moves
      */
     __aiTurn: async function() {
       if (this.__gameState !== "playing") return;
       if (this.__currentPlayer !== "han") return;
 
+      var self = this;
       this.__isAIThinking = true;
       this.fireDataEvent("aiThinking", { thinking: true });
 
       console.log("[JanggiGame] AI thinking...");
 
+      // Initialize AI if not already done
+      if (!this.__ai) {
+        this.__ai = new deskweb.game.JanggiAI(this);
+        this.__ai.addListener("aiMessage", function(e) {
+          self.fireDataEvent("aiMessage", e.getData());
+        });
+      }
+
       try {
-        // Get AI move using LLM
-        var aiMove = await this.__getAIMoveFromLLM();
+        // Get AI move using JanggiAI
+        var aiMove = await this.__ai.getMove();
 
         if (aiMove && this.__validateAIMove(aiMove)) {
           // Small delay for natural feel
           await this.__delay(500);
-
           this.__makeMove(aiMove.fromRow, aiMove.fromCol, aiMove.toRow, aiMove.toCol);
         } else {
           // Fallback to simple AI if LLM fails
           console.warn("[JanggiGame] LLM move invalid, using fallback AI");
-          var fallbackMove = this.__getFallbackAIMove();
+          var fallbackMove = this.__ai.getFallbackMove();
           if (fallbackMove) {
             await this.__delay(500);
             this.__makeMove(fallbackMove.fromRow, fallbackMove.fromCol, fallbackMove.toRow, fallbackMove.toCol);
@@ -1250,7 +1277,7 @@ qx.Class.define("deskweb.game.JanggiGame",
         }
       } catch (error) {
         console.error("[JanggiGame] AI error:", error);
-        var fallbackMove = this.__getFallbackAIMove();
+        var fallbackMove = this.__ai ? this.__ai.getFallbackMove() : this.__getFallbackAIMove();
         if (fallbackMove) {
           this.__makeMove(fallbackMove.fromRow, fallbackMove.fromCol, fallbackMove.toRow, fallbackMove.toCol);
         }
@@ -1261,9 +1288,10 @@ qx.Class.define("deskweb.game.JanggiGame",
     },
 
     /**
-     * Get AI move from LLM API (streaming mode)
+     * Get AI move from LLM API (streaming mode) with tactical explanation
      */
     __getAIMoveFromLLM: async function() {
+      var self = this;
       var boardState = this.__getBoardStateForLLM();
       var historyStr = this.__getHistoryForLLM();
       var validMovesStr = this.__getValidMovesForLLM();
@@ -1271,7 +1299,6 @@ qx.Class.define("deskweb.game.JanggiGame",
       var prompt = this.__buildAIPrompt(boardState, historyStr, validMovesStr);
 
       console.log("[JanggiGame] Sending LLM request...");
-      console.log("[JanggiGame] Valid moves for Han:", validMovesStr);
 
       try {
         var response = await fetch('https://mcp.webnori.com/api/llm/chat/completions', {
@@ -1285,15 +1312,15 @@ qx.Class.define("deskweb.game.JanggiGame",
             messages: [
               {
                 role: "system",
-                content: "You are a Janggi (Korean Chess) AI. You must select exactly ONE move from the provided valid moves list. Respond with ONLY the move in format: fromRow,fromCol,toRow,toCol (four numbers separated by commas). Example: 0,1,2,2"
+                content: "You are a skilled Janggi (Korean Chess) AI. Your goal is to CHECKMATE the opponent. Be aggressive! Always respond in the exact format: Line1=move, Line2=tactical reason in Korean, Line3=comment to opponent in Korean."
               },
               {
                 role: "user",
                 content: prompt
               }
             ],
-            max_tokens: 50,
-            temperature: 0.5,
+            max_tokens: 150,
+            temperature: 0.6,
             stream: true
           })
         });
@@ -1339,8 +1366,10 @@ qx.Class.define("deskweb.game.JanggiGame",
 
         console.log("[JanggiGame] LLM full response:", fullResponse);
 
-        // Parse move from response - look for pattern like "0,1,2,2" or "0, 1, 2, 2"
+        // Parse the response - extract move, tactical reason, and comment
+        var responseLines = fullResponse.split('\n').filter(function(l) { return l.trim() !== ''; });
         var moveMatch = fullResponse.match(/(\d)\s*,\s*(\d)\s*,\s*(\d)\s*,\s*(\d)/);
+
         if (moveMatch) {
           var move = {
             fromRow: parseInt(moveMatch[1], 10),
@@ -1348,7 +1377,29 @@ qx.Class.define("deskweb.game.JanggiGame",
             toRow: parseInt(moveMatch[3], 10),
             toCol: parseInt(moveMatch[4], 10)
           };
-          console.log("[JanggiGame] Parsed move:", move);
+
+          // Extract tactical reason and comment
+          var tacticalReason = "";
+          var aiComment = "";
+
+          if (responseLines.length >= 2) {
+            tacticalReason = responseLines[1].trim();
+          }
+          if (responseLines.length >= 3) {
+            aiComment = responseLines[2].trim();
+          }
+
+          // Fire AI message event with tactical info
+          if (tacticalReason || aiComment) {
+            self.fireDataEvent("aiMessage", {
+              type: "move",
+              tactical: tacticalReason || "수를 두었습니다.",
+              comment: aiComment || "",
+              phase: self.__getGamePhase()
+            });
+          }
+
+          console.log("[JanggiGame] Parsed move:", move, "Tactical:", tacticalReason);
           return move;
         }
 
@@ -1382,23 +1433,151 @@ qx.Class.define("deskweb.game.JanggiGame",
     },
 
     /**
-     * Build prompt for AI
+     * Build prompt for AI with aggressive strategy
      */
     __buildAIPrompt: function(boardState, history, validMoves) {
-      return `You are playing Janggi (Korean Chess) as Han (blue).
+      var phase = this.__getGamePhase();
+      var checkMoves = this.__getCheckingMoves();
+      var captureMoves = this.__getCaptureMoves();
 
-VALID MOVES (choose ONE from this list):
+      var phaseStrategy = "";
+      if (phase === "opening") {
+        phaseStrategy = "OPENING PHASE: Develop your pieces. Move horses and elephants first. Protect your king but prepare for attack.";
+      } else if (phase === "midgame") {
+        phaseStrategy = "MIDGAME PHASE: Be AGGRESSIVE! Attack the opponent's king. Use your cannons and cars to create threats. Force the opponent into defense.";
+      } else {
+        phaseStrategy = "ENDGAME PHASE: GO FOR CHECKMATE! Push hard. Every move should threaten the king or set up checkmate. Don't just capture pieces - WIN THE GAME!";
+      }
+
+      var priorityMoves = "";
+      if (checkMoves.length > 0) {
+        priorityMoves = "\n⚠️ CHECK MOVES (HIGHEST PRIORITY - can check opponent's king):\n" + checkMoves.join("\n");
+      }
+      if (captureMoves.length > 0) {
+        priorityMoves += "\n\n🎯 CAPTURE MOVES (capture opponent pieces):\n" + captureMoves.join("\n");
+      }
+
+      return `You are a STRONG Janggi (Korean Chess) AI playing as Han (blue/bottom).
+YOUR GOAL: CHECKMATE the opponent's king (왕). Capturing pieces is secondary!
+
+GAME PHASE: ${phase.toUpperCase()}
+${phaseStrategy}
+${priorityMoves}
+
+ALL VALID MOVES:
 ${validMoves}
 
-Current board:
+BOARD STATE:
 ${boardState}
 
-Recent moves:
+RECENT MOVES:
 ${history}
 
-IMPORTANT: Select exactly one move from the VALID MOVES list above.
-Respond with ONLY four numbers separated by commas: fromRow,fromCol,toRow,toCol
-Example response: 0,1,2,2`;
+STRATEGY PRIORITY:
+1. If you can CHECK the king, DO IT!
+2. Look for CHECKMATE patterns (외통수)
+3. Attack pieces protecting the king
+4. Only defend if absolutely necessary
+
+RESPONSE FORMAT (REQUIRED):
+Line 1: Move as four numbers: fromRow,fromCol,toRow,toCol
+Line 2: Brief tactical reason in Korean (1 sentence)
+Line 3: Comment to opponent in Korean (respectful, playful, or teasing based on situation)
+
+Example response:
+0,1,2,2
+마를 전진시켜 왕을 압박합니다
+좋은 수 두셨네요, 하지만 이제 제 차례입니다!`;
+    },
+
+    /**
+     * Get current game phase based on moves and pieces
+     */
+    __getGamePhase: function() {
+      var moveCount = this.__moveHistory.length;
+      var totalPieces = 0;
+
+      for (var row = 0; row < this.__rows; row++) {
+        for (var col = 0; col < this.__cols; col++) {
+          if (this.__board[row][col]) totalPieces++;
+        }
+      }
+
+      if (moveCount < 10) return "opening";
+      if (totalPieces > 20) return "midgame";
+      return "endgame";
+    },
+
+    /**
+     * Get moves that would check opponent's king
+     */
+    __getCheckingMoves: function() {
+      var checkMoves = [];
+      var opponentTeam = "cho";
+
+      for (var row = 0; row < this.__rows; row++) {
+        for (var col = 0; col < this.__cols; col++) {
+          var piece = this.__board[row][col];
+          if (piece && piece.team === "han") {
+            var moves = this.__getValidMoves(row, col, piece);
+            for (var i = 0; i < moves.length; i++) {
+              var m = moves[i];
+              // Simulate move and check if it puts opponent in check
+              if (this.__wouldCauseCheck(row, col, m.row, m.col, opponentTeam)) {
+                var symbol = deskweb.game.JanggiGame.PIECES[piece.type].name;
+                checkMoves.push("⚡ " + symbol + ": " + row + "," + col + "," + m.row + "," + m.col + " (장군!)");
+              }
+            }
+          }
+        }
+      }
+      return checkMoves;
+    },
+
+    /**
+     * Check if a move would put opponent in check
+     */
+    __wouldCauseCheck: function(fromRow, fromCol, toRow, toCol, opponentTeam) {
+      // Temporarily make the move
+      var piece = this.__board[fromRow][fromCol];
+      var capturedPiece = this.__board[toRow][toCol];
+
+      this.__board[toRow][toCol] = piece;
+      this.__board[fromRow][fromCol] = null;
+
+      var inCheck = this.__isInCheck(opponentTeam);
+
+      // Restore
+      this.__board[fromRow][fromCol] = piece;
+      this.__board[toRow][toCol] = capturedPiece;
+
+      return inCheck;
+    },
+
+    /**
+     * Get moves that capture opponent pieces
+     */
+    __getCaptureMoves: function() {
+      var captureMoves = [];
+
+      for (var row = 0; row < this.__rows; row++) {
+        for (var col = 0; col < this.__cols; col++) {
+          var piece = this.__board[row][col];
+          if (piece && piece.team === "han") {
+            var moves = this.__getValidMoves(row, col, piece);
+            for (var i = 0; i < moves.length; i++) {
+              var m = moves[i];
+              var target = this.__board[m.row][m.col];
+              if (target && target.team === "cho") {
+                var symbol = deskweb.game.JanggiGame.PIECES[piece.type].name;
+                var targetSymbol = deskweb.game.JanggiGame.PIECES[target.type].name;
+                captureMoves.push(symbol + "로 " + targetSymbol + " 잡기: " + row + "," + col + "," + m.row + "," + m.col);
+              }
+            }
+          }
+        }
+      }
+      return captureMoves;
     },
 
     /**
@@ -1670,7 +1849,24 @@ Example response: 0,1,2,2`;
     getSessionId: function() { return this.__sessionId; },
     getCameraDistance: function() { return this.__cameraDistance; },
     getCameraAngleX: function() { return this.__cameraAngleX; },
-    getCameraAngleY: function() { return this.__cameraAngleY; }
+    getCameraAngleY: function() { return this.__cameraAngleY; },
+
+    // Additional getters for JanggiAI
+    getBoard: function() { return this.__board; },
+
+    getValidMovesFor: function(row, col) {
+      var piece = this.__board[row][col];
+      if (!piece) return [];
+      return this.__getValidMoves(row, col, piece);
+    },
+
+    wouldCauseCheck: function(fromRow, fromCol, toRow, toCol, opponentTeam) {
+      return this.__wouldCauseCheck(fromRow, fromCol, toRow, toCol, opponentTeam);
+    },
+
+    isInCheck: function(team) {
+      return this.__isInCheck(team);
+    }
   },
 
   destruct : function()
@@ -1709,6 +1905,12 @@ Example response: 0,1,2,2`;
     this.__board = null;
     this.__pieceMeshes = null;
     this.__highlightMeshes = null;
+
+    // Dispose AI
+    if (this.__ai) {
+      this.__ai.dispose();
+      this.__ai = null;
+    }
 
     console.log("[JanggiGame] Disposed");
   }

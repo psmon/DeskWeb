@@ -75,7 +75,8 @@ source/class/deskweb/
 │   ├── SolitaireGame.js   # 솔리테어 게임 로직
 │   ├── MinesweeperGame.js # 지뢰찾기 게임 로직
 │   ├── TetrisGame.js      # 테트리스 게임 로직
-│   └── JanggiGame.js      # 장기 게임 로직 (AI 대전)
+│   ├── JanggiGame.js      # 장기 게임 로직 (3D 렌더링/규칙)
+│   └── JanggiAI.js        # 장기 AI 로직 (LLM 프롬프트/전략)
 └── util/                  # 유틸리티 클래스
     ├── StorageManager.js      # 가상 파일 시스템
     ├── FileExtensionRegistry.js # 파일 확장자 매핑
@@ -194,17 +195,24 @@ source/class/deskweb/
 - 인터랙티브 튜토리얼 기능
 
 ### v1.8 - 3D 장기 게임 (18-game-3d장기.md)
-- JanggiWindow, JanggiGame 구현
+- JanggiWindow, JanggiGame, JanggiAI 구현
 - Three.js 활용 3D 장기판/장기말 렌더링
 - 전통 장기 규칙 완전 구현 (차, 마, 상, 포, 졸/병, 사, 장)
+- 장기말 한글 표기 (한/초, 병/졸 등)
 - AI 대전 기능 (LLM API 활용)
-  - 외부 LLM으로 다음 수 예측
+  - JanggiAI.js로 LLM 로직 분리
+  - 게임 상황 분석 (말 현황, 잡은 말, 유불리 판단)
+  - 공격적 전략 (초반 수비 → 중후반 공격)
+  - AI 개성 멘트 (상황별 대화)
   - 코드 기반 가드레일 (유효 수 검증)
   - Fallback AI (LLM 실패 시)
+- AI 채팅창 (스크롤 지원)
+- "장군이요" 체크 이펙트
 - 세션 기반 게임 상태 저장 (멀티 윈도우 지원)
 - 게임 복기(분석) 기능
 - 이동 가능 경로 하이라이트
 - 카메라 각도 조절
+- 도움말 (장기 규칙 설명)
 
 ---
 

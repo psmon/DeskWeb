@@ -78,6 +78,11 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     __is3DInitialized: false,
     __cameraSlider: null,
     __analysisWindow: null,
+    __aiChatContainer: null,
+    __aiChatScroll: null,
+    __aiChatList: null,
+    __checkEffectLabel: null,
+    __helpWindow: null,
 
     /**
      * Setup game event listeners
@@ -88,6 +93,8 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       this.__game.addListener("moveMade", this.__onMoveMade, this);
       this.__game.addListener("gameOver", this.__onGameOver, this);
       this.__game.addListener("aiThinking", this.__onAIThinking, this);
+      this.__game.addListener("checkOccurred", this.__onCheckOccurred, this);
+      this.__game.addListener("aiMessage", this.__onAIMessage, this);
     },
 
     /**
@@ -109,9 +116,14 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       var settingsBtn = new qx.ui.toolbar.Button("Settings", "deskweb/images/settings.svg");
       settingsBtn.addListener("execute", this.__onSettings, this);
 
+      // Help button
+      var helpBtn = new qx.ui.toolbar.Button("Help", "deskweb/images/help.svg");
+      helpBtn.addListener("execute", this.__onHelp, this);
+
       this.__toolbar.add(newGameBtn);
       this.__toolbar.add(analysisBtn);
       this.__toolbar.addSpacer();
+      this.__toolbar.add(helpBtn);
       this.__toolbar.add(settingsBtn);
 
       this.add(this.__toolbar);
@@ -328,6 +340,61 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       historyContainer.add(historyTitle);
       historyContainer.add(this.__historyList, {flex: 1});
 
+      // AI Chat container
+      this.__aiChatContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
+      this.__aiChatContainer.set({
+        backgroundColor: "#4a3d35",
+        padding: 10,
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 5,
+          width: 2,
+          color: "#6b9eff"
+        })
+      });
+
+      var aiChatTitle = new qx.ui.basic.Label("🤖 AI 생각");
+      aiChatTitle.set({
+        textColor: "#6b9eff",
+        font: qx.bom.Font.fromString("bold 11px Arial")
+      });
+
+      // Scroll container for AI chat
+      this.__aiChatScroll = new qx.ui.container.Scroll();
+      this.__aiChatScroll.set({
+        height: 100,
+        backgroundColor: "#3d2a1f"
+      });
+
+      this.__aiChatList = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
+      this.__aiChatList.set({
+        backgroundColor: "#3d2a1f",
+        padding: 5
+      });
+
+      this.__aiChatScroll.add(this.__aiChatList);
+
+      // Add initial message
+      this.__addAIChatMessage("안녕하세요! 저는 AI입니다. 좋은 대국 하겠습니다.", "greeting");
+
+      this.__aiChatContainer.add(aiChatTitle);
+      this.__aiChatContainer.add(this.__aiChatScroll, {flex: 1});
+
+      // Check effect label (hidden by default)
+      this.__checkEffectLabel = new qx.ui.basic.Label("⚡ 장군이요! ⚡");
+      this.__checkEffectLabel.set({
+        textColor: "#ff4444",
+        font: qx.bom.Font.fromString("bold 16px Arial"),
+        textAlign: "center",
+        backgroundColor: "#ffeeee",
+        padding: [8, 15],
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 8,
+          width: 3,
+          color: "#ff0000"
+        }),
+        visibility: "hidden"
+      });
+
       // Controls info
       var controlsContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
       controlsContainer.set({
@@ -338,17 +405,17 @@ qx.Class.define("deskweb.ui.JanggiWindow",
         })
       });
 
-      var controlsTitle = new qx.ui.basic.Label("HOW TO PLAY");
+      var controlsTitle = new qx.ui.basic.Label("조작법");
       controlsTitle.set({
         textColor: "#c4a882",
         font: qx.bom.Font.fromString("bold 11px Arial")
       });
 
       var controls = [
-        "Click piece to select",
-        "Green = valid moves",
-        "Red = capture move",
-        "You play as Cho (Red)"
+        "말 클릭 → 선택",
+        "초록색 → 이동 가능",
+        "빨간색 → 잡기 가능",
+        "당신은 초(아래) 입니다"
       ];
 
       controlsContainer.add(controlsTitle);
@@ -363,10 +430,53 @@ qx.Class.define("deskweb.ui.JanggiWindow",
 
       // Add all containers
       this.__sidePanel.add(turnContainer);
+      this.__sidePanel.add(this.__checkEffectLabel);
       this.__sidePanel.add(capturedChoContainer);
       this.__sidePanel.add(capturedHanContainer);
-      this.__sidePanel.add(historyContainer, {flex: 1});
+      this.__sidePanel.add(this.__aiChatContainer, {flex: 1});
+      this.__sidePanel.add(historyContainer);
       this.__sidePanel.add(controlsContainer);
+    },
+
+    /**
+     * Add a message to AI chat
+     */
+    __addAIChatMessage: function(message, type) {
+      var msgLabel = new qx.ui.basic.Label(message);
+      var color = "#c4a882";
+
+      if (type === "tactical") {
+        color = "#90EE90"; // Light green for tactical
+      } else if (type === "comment") {
+        color = "#87CEEB"; // Light blue for comments
+      } else if (type === "warning") {
+        color = "#FFB6C1"; // Light pink for warnings
+      } else if (type === "greeting") {
+        color = "#DDA0DD"; // Plum for greetings
+      }
+
+      msgLabel.set({
+        textColor: color,
+        font: qx.bom.Font.fromString("11px Arial"),
+        rich: true,
+        wrap: true
+      });
+
+      // Keep only last 10 messages
+      var children = this.__aiChatList.getChildren();
+      if (children.length >= 10) {
+        this.__aiChatList.removeAt(0);
+      }
+
+      this.__aiChatList.add(msgLabel);
+
+      // Scroll to bottom
+      var self = this;
+      setTimeout(function() {
+        if (self.__aiChatScroll && !self.__aiChatScroll.isDisposed()) {
+          self.__aiChatScroll.scrollToY(10000);
+        }
+      }, 50);
     },
 
     /**
@@ -784,7 +894,145 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       if (data.thinking) {
         this.__statusLabel.setValue("AI is thinking...");
         this.__turnLabel.setValue("Han (Thinking...)");
+        this.__addAIChatMessage("음... 생각 중입니다...", "tactical");
       }
+    },
+
+    /**
+     * Handle check occurred
+     */
+    __onCheckOccurred: function(e) {
+      var self = this;
+      var data = e.getData();
+
+      console.log("[JanggiWindow] Check occurred! Checker:", data.checker);
+
+      // Show check effect
+      this.__checkEffectLabel.setVisibility("visible");
+
+      // Add AI message about check
+      if (data.checker === "han") {
+        this.__addAIChatMessage("⚡ 장군이요! 왕을 피하세요!", "warning");
+      } else {
+        this.__addAIChatMessage("앗! 장군이네요. 피해야겠습니다.", "warning");
+      }
+
+      // Hide after 2 seconds
+      setTimeout(function() {
+        if (self.__checkEffectLabel && !self.__checkEffectLabel.isDisposed()) {
+          self.__checkEffectLabel.setVisibility("hidden");
+        }
+      }, 2000);
+    },
+
+    /**
+     * Handle AI message
+     */
+    __onAIMessage: function(e) {
+      var data = e.getData();
+
+      // Show tactical reasoning
+      if (data.tactical) {
+        this.__addAIChatMessage("💡 " + data.tactical, "tactical");
+      }
+
+      // Show comment/taunt
+      if (data.comment) {
+        this.__addAIChatMessage("💬 " + data.comment, "comment");
+      }
+    },
+
+    /**
+     * Handle Help button click
+     */
+    __onHelp: function() {
+      if (this.__helpWindow && !this.__helpWindow.isDisposed()) {
+        this.__helpWindow.open();
+        return;
+      }
+
+      var win = new qx.ui.window.Window("장기 게임 도움말");
+      win.setLayout(new qx.ui.layout.VBox(10));
+      win.set({
+        width: 450,
+        height: 550,
+        showMinimize: false,
+        showMaximize: false,
+        contentPadding: 15
+      });
+
+      this.__helpWindow = win;
+
+      var scroll = new qx.ui.container.Scroll();
+      var content = new qx.ui.container.Composite(new qx.ui.layout.VBox(10));
+      content.setPadding(10);
+
+      var helpText = `
+<h3 style="color:#d4a574;">🎯 게임 목표</h3>
+<p>상대방의 <b>왕(장)</b>을 잡아 승리하세요!</p>
+<p>상대 왕을 공격할 수 있는 상황을 <b>"장군"</b>이라고 합니다.</p>
+<p>왕이 어디로 피해도 장군인 상태를 <b>"외통수(체크메이트)"</b>라고 하며 게임이 끝납니다.</p>
+
+<h3 style="color:#d4a574;">♟️ 장기말 이동 규칙</h3>
+<table style="font-size:11px; color:#c4a882;">
+<tr><td><b>왕(장)</b></td><td>궁 안에서만 상하좌우 + 대각선 1칸</td></tr>
+<tr><td><b>차</b></td><td>상하좌우로 거리 제한 없이 직선 이동</td></tr>
+<tr><td><b>포</b></td><td>다른 말 하나를 뛰어넘어 이동/잡기 (포는 포를 못 넘음)</td></tr>
+<tr><td><b>마</b></td><td>직선 1칸 + 대각선 1칸 (중간에 말 있으면 불가)</td></tr>
+<tr><td><b>상</b></td><td>직선 1칸 + 대각선 2칸 (중간에 말 있으면 불가)</td></tr>
+<tr><td><b>사</b></td><td>궁 안에서만 상하좌우 + 대각선 1칸</td></tr>
+<tr><td><b>졸/병</b></td><td>앞으로 또는 좌우로 1칸</td></tr>
+</table>
+
+<h3 style="color:#d4a574;">🏯 궁(Palace)</h3>
+<p>각 진영의 3x3 영역입니다. 왕과 사는 궁 안에서만 이동할 수 있습니다.</p>
+<p>궁 안에서는 대각선 이동도 가능합니다.</p>
+
+<h3 style="color:#d4a574;">🎮 조작법</h3>
+<ul style="color:#c4a882; font-size:11px;">
+<li>말을 <b>클릭</b>하면 선택됩니다</li>
+<li><b>초록색</b> 표시 = 이동 가능한 위치</li>
+<li><b>빨간색</b> 표시 = 상대 말을 잡을 수 있는 위치</li>
+<li>선택된 말을 다시 클릭하면 선택 해제</li>
+<li>아래쪽 슬라이더로 <b>카메라 회전</b> 가능</li>
+</ul>
+
+<h3 style="color:#d4a574;">🤖 AI 상대</h3>
+<p>AI는 <b>한(파란색)</b>으로 플레이합니다.</p>
+<p>당신은 <b>초(빨간색)</b>입니다. 먼저 시작하세요!</p>
+<p>AI는 LLM(대형언어모델)을 사용하여 수를 선택합니다.</p>
+
+<h3 style="color:#d4a574;">💡 전략 팁</h3>
+<ul style="color:#c4a882; font-size:11px;">
+<li>초반: 마, 상을 활성화하고 포 자리를 잡으세요</li>
+<li>중반: 차와 포를 사용해 상대 왕을 압박하세요</li>
+<li>종반: 장군을 연속으로 만들어 외통수를 노리세요</li>
+<li>왕 주변의 사를 제거하면 공격이 쉬워집니다</li>
+</ul>
+`;
+
+      var helpLabel = new qx.ui.basic.Label(helpText);
+      helpLabel.set({
+        rich: true,
+        textColor: "#c4a882",
+        font: qx.bom.Font.fromString("12px Arial")
+      });
+
+      content.add(helpLabel);
+      scroll.add(content);
+
+      var closeBtn = new qx.ui.form.Button("닫기");
+      closeBtn.addListener("execute", function() {
+        win.close();
+      });
+
+      win.add(scroll, {flex: 1});
+      win.add(closeBtn);
+
+      var app = qx.core.Init.getApplication();
+      app.getRoot().add(win, {left: 100, top: 50});
+      win.center();
+      win.open();
     }
   },
 
@@ -801,6 +1049,12 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       this.__analysisWindow.close();
       this.__analysisWindow.dispose();
       this.__analysisWindow = null;
+    }
+
+    if (this.__helpWindow && !this.__helpWindow.isDisposed()) {
+      this.__helpWindow.close();
+      this.__helpWindow.dispose();
+      this.__helpWindow = null;
     }
   }
 });
