@@ -22,6 +22,8 @@
  * @ignore(THREE)
  * @ignore(requestAnimationFrame)
  * @ignore(cancelAnimationFrame)
+ * @ignore(AudioContext)
+ * @ignore(webkitAudioContext)
  */
 qx.Class.define("deskweb.game.JanggiGame",
 {
@@ -75,8 +77,13 @@ qx.Class.define("deskweb.game.JanggiGame",
     // Material type
     this.__materialType = 'wood';
 
+    // Animation state
+    this.__isAnimating = false;
+    this.__pendingAnimations = [];
+
     // Initialize
     this.__initBoard();
+    this.__initAudio();
 
     console.log("[JanggiGame] Initialized successfully");
   },
@@ -207,6 +214,171 @@ qx.Class.define("deskweb.game.JanggiGame",
     __container: null,
     __animationId: null,
     __materialType: null,
+    __audioContext: null,
+    __isAnimating: false,
+    __pendingAnimations: null,
+
+    /**
+     * Initialize audio context for sound effects
+     */
+    __initAudio: function() {
+      try {
+        this.__audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log("[JanggiGame] Audio context initialized");
+      } catch (e) {
+        console.warn("[JanggiGame] Could not initialize audio context:", e);
+      }
+    },
+
+    /**
+     * Play impact sound effect
+     * @param {String} type - "move" for normal move, "capture" for capturing
+     */
+    __playSound: function(type) {
+      if (!this.__audioContext) return;
+
+      try {
+        var ctx = this.__audioContext;
+        var oscillator = ctx.createOscillator();
+        var gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        if (type === "capture") {
+          // Stronger impact sound for capture - "탁!"
+          oscillator.type = "square";
+          oscillator.frequency.setValueAtTime(150, ctx.currentTime);
+          oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.1);
+          gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+          oscillator.start(ctx.currentTime);
+          oscillator.stop(ctx.currentTime + 0.15);
+        } else {
+          // Soft placement sound - "톡"
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(300, ctx.currentTime);
+          oscillator.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.05);
+          gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
+          oscillator.start(ctx.currentTime);
+          oscillator.stop(ctx.currentTime + 0.08);
+        }
+      } catch (e) {
+        console.warn("[JanggiGame] Sound play error:", e);
+      }
+    },
+
+    /**
+     * Animate piece movement with 3D parabolic arc
+     * @param {Object} mesh - Three.js mesh to animate
+     * @param {Object} from - Start position {x, y, z}
+     * @param {Object} to - End position {x, y, z}
+     * @param {Number} duration - Animation duration in ms
+     * @param {Function} onComplete - Callback when animation completes
+     */
+    __animatePieceMove: function(mesh, from, to, duration, onComplete) {
+      var self = this;
+      var startTime = Date.now();
+      var arcHeight = 0.5; // Height of the arc
+
+      // Calculate distance for dynamic arc height
+      var dx = to.x - from.x;
+      var dz = to.z - from.z;
+      var distance = Math.sqrt(dx * dx + dz * dz);
+      arcHeight = Math.min(0.8, 0.3 + distance * 0.1);
+
+      function animateStep() {
+        var elapsed = Date.now() - startTime;
+        var progress = Math.min(elapsed / duration, 1);
+
+        // Ease out cubic for smooth deceleration
+        var easeProgress = 1 - Math.pow(1 - progress, 3);
+
+        // Linear interpolation for x and z
+        var x = from.x + (to.x - from.x) * easeProgress;
+        var z = from.z + (to.z - from.z) * easeProgress;
+
+        // Parabolic arc for y (height)
+        // y = baseY + arcHeight * 4 * t * (1 - t) where t is progress
+        var arcY = arcHeight * 4 * progress * (1 - progress);
+        var y = from.y + arcY;
+
+        mesh.position.set(x, y, z);
+
+        // Add slight rotation during flight
+        mesh.rotation.y = progress * Math.PI * 0.5;
+
+        if (progress < 1) {
+          requestAnimationFrame(animateStep);
+        } else {
+          // Ensure final position is exact
+          mesh.position.set(to.x, to.y, to.z);
+          mesh.rotation.y = 0;
+          if (onComplete) onComplete();
+        }
+      }
+
+      animateStep();
+    },
+
+    /**
+     * Animate captured piece flying off the board
+     * @param {Object} mesh - Three.js mesh of captured piece
+     * @param {String} capturedByTeam - Team that captured the piece
+     */
+    __animateCapturedPiece: function(mesh, capturedByTeam) {
+      var self = this;
+      var startTime = Date.now();
+      var duration = 600;
+      var startPos = mesh.position.clone();
+
+      // Direction based on which team captured (fly towards the capturing team's side)
+      var direction = capturedByTeam === "cho" ? -1 : 1;
+      var targetX = startPos.x + (Math.random() - 0.5) * 3;
+      var targetZ = direction * 6; // Fly off board
+      var targetY = -1; // Fall below board
+
+      function animateStep() {
+        var elapsed = Date.now() - startTime;
+        var progress = Math.min(elapsed / duration, 1);
+
+        // Ease in for acceleration (gravity effect)
+        var easeProgress = progress * progress;
+
+        // Position
+        var x = startPos.x + (targetX - startPos.x) * progress;
+        var z = startPos.z + (targetZ - startPos.z) * easeProgress;
+
+        // Arc up then fall
+        var arcProgress = progress < 0.3 ? progress / 0.3 : 1;
+        var fallProgress = progress > 0.3 ? (progress - 0.3) / 0.7 : 0;
+        var y = startPos.y + 0.5 * (1 - Math.pow(arcProgress * 2 - 1, 2)) - fallProgress * 1.5;
+
+        mesh.position.set(x, y, z);
+
+        // Tumbling rotation
+        mesh.rotation.x = progress * Math.PI * 2;
+        mesh.rotation.z = progress * Math.PI * 1.5;
+
+        // Fade out (scale down)
+        var scale = 1 - easeProgress * 0.5;
+        mesh.scale.set(scale, scale, scale);
+
+        if (progress < 1) {
+          requestAnimationFrame(animateStep);
+        } else {
+          // Remove mesh from scene
+          if (mesh.parent) {
+            mesh.parent.remove(mesh);
+          }
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.material) mesh.material.dispose();
+        }
+      }
+
+      animateStep();
+    },
 
     /**
      * Initialize game board with starting positions
@@ -564,6 +736,7 @@ qx.Class.define("deskweb.game.JanggiGame",
     handleClick: function(row, col) {
       if (this.__gameState !== "playing") return;
       if (this.__isAIThinking) return;
+      if (this.__isAnimating) return; // Don't accept clicks during animation
       if (this.__currentPlayer !== "cho") return; // Human plays Cho
 
       console.log("[JanggiGame] Click at:", row, col);
@@ -581,11 +754,7 @@ qx.Class.define("deskweb.game.JanggiGame",
           // Make the move
           this.__makeMove(this.__selectedPiece.row, this.__selectedPiece.col, row, col);
           this.__clearSelection();
-
-          // AI's turn
-          if (this.__gameState === "playing") {
-            this.__aiTurn();
-          }
+          // AI's turn is now called from within __makeMove after animation completes
         } else if (clickedPiece && clickedPiece.team === "cho") {
           // Select different piece
           this.__selectPiece(row, col);
@@ -1163,8 +1332,12 @@ qx.Class.define("deskweb.game.JanggiGame",
      * Make a move
      */
     __makeMove: function(fromRow, fromCol, toRow, toCol) {
+      var self = this;
       var piece = this.__board[fromRow][fromCol];
       var captured = this.__board[toRow][toCol];
+
+      // Prevent new moves while animating
+      this.__isAnimating = true;
 
       // Record move in history
       this.__moveHistory.push({
@@ -1175,66 +1348,103 @@ qx.Class.define("deskweb.game.JanggiGame",
         timestamp: Date.now()
       });
 
-      // Handle capture
-      if (captured) {
-        this.__capturedPieces[piece.team].push(captured);
-
-        // Remove captured piece mesh
-        if (this.__pieceMeshes[captured.id]) {
-          this.__boardGroup.remove(this.__pieceMeshes[captured.id]);
-          this.__pieceMeshes[captured.id].geometry.dispose();
-          this.__pieceMeshes[captured.id].material.dispose();
-          delete this.__pieceMeshes[captured.id];
-        }
-
-        // Check for king capture (game over)
-        if (captured.type === "KING") {
-          this.__winner = piece.team;
-          this.__gameState = "gameover";
-          this.fireDataEvent("gameOver", { winner: this.__winner });
-        }
-      }
-
-      // Update board
+      // Update board state immediately (for game logic)
       this.__board[toRow][toCol] = piece;
       this.__board[fromRow][fromCol] = null;
 
-      // Update piece mesh position
-      if (this.__pieceMeshes[piece.id]) {
-        var mesh = this.__pieceMeshes[piece.id];
-        mesh.position.set(toCol, 0.076, toRow);
-        mesh.userData.row = toRow;
-        mesh.userData.col = toCol;
-      }
+      // Calculate animation duration based on distance
+      var distance = Math.sqrt(Math.pow(toRow - fromRow, 2) + Math.pow(toCol - fromCol, 2));
+      var animDuration = Math.min(600, 200 + distance * 80);
 
-      // Switch turns
-      this.__currentPlayer = this.__currentPlayer === "cho" ? "han" : "cho";
+      // Get moving piece mesh
+      var movingMesh = this.__pieceMeshes[piece.id];
+      var capturedMesh = captured ? this.__pieceMeshes[captured.id] : null;
 
-      // Check if opponent's king is now in check
-      var opponentInCheck = this.__isInCheck(this.__currentPlayer);
-      if (opponentInCheck) {
-        console.log("[JanggiGame] 장군! (Check!)");
-        this.fireDataEvent("checkOccurred", {
-          checker: piece.team,
-          checked: this.__currentPlayer,
-          piece: piece
+      // Complete move after animation
+      var completeMove = function() {
+        // Handle captured piece tracking
+        if (captured) {
+          self.__capturedPieces[piece.team].push(captured);
+          delete self.__pieceMeshes[captured.id];
+
+          // Check for king capture (game over)
+          if (captured.type === "KING") {
+            self.__winner = piece.team;
+            self.__gameState = "gameover";
+            self.fireDataEvent("gameOver", { winner: self.__winner });
+          }
+        }
+
+        // Update mesh user data
+        if (movingMesh) {
+          movingMesh.userData.row = toRow;
+          movingMesh.userData.col = toCol;
+        }
+
+        // Switch turns
+        self.__currentPlayer = self.__currentPlayer === "cho" ? "han" : "cho";
+
+        // Check if opponent's king is now in check
+        var opponentInCheck = self.__isInCheck(self.__currentPlayer);
+        if (opponentInCheck) {
+          console.log("[JanggiGame] 장군! (Check!)");
+          self.fireDataEvent("checkOccurred", {
+            checker: piece.team,
+            checked: self.__currentPlayer,
+            piece: piece
+          });
+        }
+
+        // Save game state
+        self.__saveGameState();
+
+        self.fireDataEvent("moveMade", {
+          piece: piece,
+          from: { row: fromRow, col: fromCol },
+          to: { row: toRow, col: toCol },
+          captured: captured,
+          isCheck: opponentInCheck
         });
+
+        self.fireEvent("gameStateChange");
+        self.__isAnimating = false;
+
+        console.log("[JanggiGame] Move:", piece.type, "from", fromRow, fromCol, "to", toRow, toCol, opponentInCheck ? "(장군!)" : "");
+
+        // Trigger AI turn if it's now AI's turn (human just moved)
+        if (self.__gameState === "playing" && self.__currentPlayer === "han" && piece.team === "cho") {
+          // Small delay to let UI update before AI thinking
+          setTimeout(function() {
+            self.__aiTurn();
+          }, 300);
+        }
+      };
+
+      // Animate the moving piece
+      if (movingMesh) {
+        var fromPos = { x: fromCol, y: 0.076, z: fromRow };
+        var toPos = { x: toCol, y: 0.076, z: toRow };
+
+        this.__animatePieceMove(movingMesh, fromPos, toPos, animDuration, function() {
+          // Play impact sound when landing
+          if (captured) {
+            self.__playSound("capture");
+          } else {
+            self.__playSound("move");
+          }
+
+          // If there's a captured piece, animate it flying off
+          if (capturedMesh) {
+            self.__animateCapturedPiece(capturedMesh, piece.team);
+          }
+
+          // Complete the move
+          completeMove();
+        });
+      } else {
+        // No mesh (shouldn't happen), complete immediately
+        completeMove();
       }
-
-      // Save game state
-      this.__saveGameState();
-
-      this.fireDataEvent("moveMade", {
-        piece: piece,
-        from: { row: fromRow, col: fromCol },
-        to: { row: toRow, col: toCol },
-        captured: captured,
-        isCheck: opponentInCheck
-      });
-
-      this.fireEvent("gameStateChange");
-
-      console.log("[JanggiGame] Move:", piece.type, "from", fromRow, fromCol, "to", toRow, toCol, opponentInCheck ? "(장군!)" : "");
     },
 
     /**
