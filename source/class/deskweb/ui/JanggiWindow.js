@@ -32,8 +32,8 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     this.__sessionId = "janggi-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9);
 
     this.set({
-      width: 750,
-      height: 700,
+      width: 900,
+      height: 550,
       showMinimize: true,
       showMaximize: true,
       showClose: true,
@@ -43,6 +43,10 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     });
 
     this.setLayout(new qx.ui.layout.VBox(0));
+
+    // Fullscreen state
+    this.__isFullscreen = false;
+    this.__savedBounds = null;
 
     // Initialize game logic with session ID
     this.__game = new deskweb.game.JanggiGame(this.__sessionId);
@@ -66,23 +70,34 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     __sessionId: null,
     __game: null,
     __toolbar: null,
+    __mainContainer: null,
+    __gamePanel: null,
     __gameContainer: null,
     __canvasContainer: null,
+    __cameraControls: null,
     __sidePanel: null,
+    __bottomPanel: null,
     __statusBar: null,
     __statusLabel: null,
     __turnLabel: null,
+    __scoreLabel: null,
     __capturedChoLabel: null,
     __capturedHanLabel: null,
     __historyList: null,
     __is3DInitialized: false,
-    __cameraSlider: null,
     __analysisWindow: null,
     __aiChatContainer: null,
     __aiChatScroll: null,
     __aiChatList: null,
     __checkEffectLabel: null,
     __helpWindow: null,
+    __isFullscreen: false,
+    __savedBounds: null,
+    __turnIndicator: null,
+    __turnAnimationTimer: null,
+    __isDragging: false,
+    __lastMouseX: 0,
+    __lastMouseY: 0,
 
     /**
      * Setup game event listeners
@@ -112,6 +127,10 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       var analysisBtn = new qx.ui.toolbar.Button("Analysis", "deskweb/images/settings.svg");
       analysisBtn.addListener("execute", this.__onAnalysis, this);
 
+      // Fullscreen button
+      var fullscreenBtn = new qx.ui.toolbar.Button("Fullscreen", "deskweb/images/maximize.svg");
+      fullscreenBtn.addListener("execute", this.__toggleFullscreen, this);
+
       // Settings button
       var settingsBtn = new qx.ui.toolbar.Button("Settings", "deskweb/images/settings.svg");
       settingsBtn.addListener("execute", this.__onSettings, this);
@@ -122,6 +141,7 @@ qx.Class.define("deskweb.ui.JanggiWindow",
 
       this.__toolbar.add(newGameBtn);
       this.__toolbar.add(analysisBtn);
+      this.__toolbar.add(fullscreenBtn);
       this.__toolbar.addSpacer();
       this.__toolbar.add(helpBtn);
       this.__toolbar.add(settingsBtn);
@@ -130,115 +150,347 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     },
 
     /**
-     * Create main game content area
+     * Create main game content area - Wide layout
+     * Left: Game panel, Right: Info panel, Bottom: AI Chat
      */
     __createMainContent: function() {
-      var mainContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
-      mainContainer.set({
+      // Main container with vertical layout (top: game+info, bottom: chat)
+      this.__mainContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
+      this.__mainContainer.set({
         backgroundColor: "#2d1810",
-        padding: 10
+        padding: 8
       });
 
-      this.__gameContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(10));
+      // Top section: Game + Side Panel (horizontal)
+      var topSection = new qx.ui.container.Composite(new qx.ui.layout.HBox(8));
 
-      // 3D Canvas container
-      this.__canvasContainer = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
-      this.__canvasContainer.set({
-        width: 500,
-        height: 520,
+      // Left: Game panel (canvas + camera controls)
+      this.__gamePanel = new qx.ui.container.Composite(new qx.ui.layout.VBox(0));
+      this.__gamePanel.set({
         backgroundColor: "#1a0f08"
       });
 
-      // Side panel
-      this.__sidePanel = new qx.ui.container.Composite(new qx.ui.layout.VBox(10));
+      // Canvas container - will fill available space
+      this.__canvasContainer = new qx.ui.container.Composite(new qx.ui.layout.Canvas());
+      this.__canvasContainer.set({
+        minWidth: 400,
+        minHeight: 350,
+        backgroundColor: "#1a0f08"
+      });
+
+      // In-game camera controls (overlay style)
+      this.__createInGameCameraControls();
+
+      // In-game turn indicator (left side)
+      this.__createTurnIndicator();
+
+      this.__gamePanel.add(this.__canvasContainer, {flex: 1});
+
+      // Right: Side panel (info + controls)
+      this.__sidePanel = new qx.ui.container.Composite(new qx.ui.layout.VBox(8));
       this.__sidePanel.set({
         width: 200,
         backgroundColor: "#3d2a1f",
-        padding: 15
+        padding: 10
       });
 
       this.__createSidePanelContent();
 
-      this.__gameContainer.add(this.__canvasContainer, {flex: 1});
-      this.__gameContainer.add(this.__sidePanel);
+      topSection.add(this.__gamePanel, {flex: 1});
+      topSection.add(this.__sidePanel);
 
-      // Camera rotation slider
-      var cameraContainer = this.__createCameraSlider();
-
-      mainContainer.add(this.__gameContainer, {flex: 1});
-      mainContainer.add(cameraContainer);
-
-      this.add(mainContainer, {flex: 1});
-    },
-
-    /**
-     * Create camera rotation slider
-     */
-    __createCameraSlider: function() {
-      var container = new qx.ui.container.Composite(new qx.ui.layout.HBox(10));
-      container.set({
-        height: 35,
+      // Bottom: AI Chat panel
+      this.__bottomPanel = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
+      this.__bottomPanel.set({
+        height: 100,
         backgroundColor: "#3d2a1f",
-        padding: [5, 15],
-        decorator: new qx.ui.decoration.Decorator().set({
-          radius: 5
-        })
+        padding: 8
       });
 
-      var leftLabel = new qx.ui.basic.Label("Left");
-      leftLabel.set({
-        textColor: "#c4a882",
-        font: qx.bom.Font.fromString("11px Arial"),
-        alignY: "middle"
-      });
+      this.__createBottomChatPanel();
 
-      this.__cameraSlider = new qx.ui.form.Slider();
-      this.__cameraSlider.set({
-        minimum: -100,
-        maximum: 100,
-        singleStep: 5,
-        value: 0,
-        decorator: new qx.ui.decoration.Decorator().set({
-          backgroundColor: "#5a3d2a",
-          radius: 3
-        })
-      });
-      this.__cameraSlider.addListener("changeValue", function(e) {
-        var value = e.getData() / 100;
-        this.__game.setCameraAngleY(value);
-      }, this);
+      this.__mainContainer.add(topSection, {flex: 1});
+      this.__mainContainer.add(this.__bottomPanel);
 
-      var rightLabel = new qx.ui.basic.Label("Right");
-      rightLabel.set({
-        textColor: "#c4a882",
-        font: qx.bom.Font.fromString("11px Arial"),
-        alignY: "middle"
-      });
+      this.add(this.__mainContainer, {flex: 1});
 
-      var cameraLabel = new qx.ui.basic.Label("Camera Rotation");
-      cameraLabel.set({
-        textColor: "#d4a574",
-        font: qx.bom.Font.fromString("bold 11px Arial"),
-        alignY: "middle"
-      });
-
-      container.add(cameraLabel);
-      container.add(leftLabel);
-      container.add(this.__cameraSlider, {flex: 1});
-      container.add(rightLabel);
-
-      return container;
+      // Setup keyboard listener for ESC key
+      this.__setupKeyboardListener();
     },
 
     /**
-     * Create side panel content
+     * Create in-game camera controls (floating buttons)
+     */
+    __createInGameCameraControls: function() {
+      var self = this;
+
+      // Camera control container (positioned in canvas)
+      this.__cameraControls = new qx.ui.container.Composite(new qx.ui.layout.HBox(3));
+      this.__cameraControls.set({
+        backgroundColor: "rgba(0,0,0,0.5)",
+        padding: 4,
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 4
+        }),
+        zIndex: 100
+      });
+
+      // Rotate left button
+      var rotLeftBtn = new qx.ui.form.Button("<");
+      rotLeftBtn.set({
+        width: 28,
+        height: 24,
+        padding: 0,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff"
+      });
+      rotLeftBtn.addListener("execute", function() {
+        var current = self.__game.getCameraAngleY();
+        self.__game.setCameraAngleY(current - 0.15);
+      });
+
+      // Reset button
+      var resetBtn = new qx.ui.form.Button("R");
+      resetBtn.set({
+        width: 28,
+        height: 24,
+        padding: 0,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff",
+        toolTipText: "Reset camera"
+      });
+      resetBtn.addListener("execute", function() {
+        self.__game.setCameraDistance(15);
+        self.__game.setCameraAngleX(0.8);
+        self.__game.setCameraAngleY(0);
+      });
+
+      // Rotate right button
+      var rotRightBtn = new qx.ui.form.Button(">");
+      rotRightBtn.set({
+        width: 28,
+        height: 24,
+        padding: 0,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff"
+      });
+      rotRightBtn.addListener("execute", function() {
+        var current = self.__game.getCameraAngleY();
+        self.__game.setCameraAngleY(current + 0.15);
+      });
+
+      // Zoom in button
+      var zoomInBtn = new qx.ui.form.Button("+");
+      zoomInBtn.set({
+        width: 28,
+        height: 24,
+        padding: 0,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff",
+        toolTipText: "Zoom in"
+      });
+      zoomInBtn.addListener("execute", function() {
+        var current = self.__game.getCameraDistance();
+        self.__game.setCameraDistance(current - 2);
+      });
+
+      // Zoom out button
+      var zoomOutBtn = new qx.ui.form.Button("-");
+      zoomOutBtn.set({
+        width: 28,
+        height: 24,
+        padding: 0,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff",
+        toolTipText: "Zoom out"
+      });
+      zoomOutBtn.addListener("execute", function() {
+        var current = self.__game.getCameraDistance();
+        self.__game.setCameraDistance(current + 2);
+      });
+
+      this.__cameraControls.add(rotLeftBtn);
+      this.__cameraControls.add(zoomInBtn);
+      this.__cameraControls.add(resetBtn);
+      this.__cameraControls.add(zoomOutBtn);
+      this.__cameraControls.add(rotRightBtn);
+
+      // Add to canvas container with absolute positioning
+      this.__canvasContainer.add(this.__cameraControls, {right: 5, top: 5});
+    },
+
+    /**
+     * Create turn indicator on left side of game view
+     */
+    __createTurnIndicator: function() {
+      this.__turnIndicator = new qx.ui.container.Composite(new qx.ui.layout.VBox(2));
+      this.__turnIndicator.set({
+        backgroundColor: "rgba(0,0,0,0.7)",
+        padding: [8, 12],
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 6
+        }),
+        zIndex: 100
+      });
+
+      // Turn text label
+      this.__turnIndicator.turnText = new qx.ui.basic.Label("새게임을 시작해주세요");
+      this.__turnIndicator.turnText.set({
+        textColor: "#d4a574",
+        font: qx.bom.Font.fromString("bold 13px Arial"),
+        textAlign: "center"
+      });
+
+      // Loading dots for AI thinking animation
+      this.__turnIndicator.loadingDots = new qx.ui.basic.Label("");
+      this.__turnIndicator.loadingDots.set({
+        textColor: "#6b9eff",
+        font: qx.bom.Font.fromString("bold 14px Arial"),
+        textAlign: "center",
+        visibility: "excluded"
+      });
+
+      this.__turnIndicator.add(this.__turnIndicator.turnText);
+      this.__turnIndicator.add(this.__turnIndicator.loadingDots);
+
+      // Add to canvas container (left side)
+      this.__canvasContainer.add(this.__turnIndicator, {left: 5, top: 5});
+    },
+
+    /**
+     * Update turn indicator display
+     */
+    __updateTurnIndicator: function(isAITurn, isThinking) {
+      var self = this;
+
+      if (isThinking) {
+        // AI is thinking - show loading animation
+        this.__turnIndicator.turnText.setValue("AI 생각중");
+        this.__turnIndicator.turnText.setTextColor("#6b9eff");
+        this.__turnIndicator.loadingDots.setVisibility("visible");
+
+        // Start loading animation
+        this.__startLoadingAnimation();
+      } else if (isAITurn) {
+        // AI's turn but not thinking yet
+        this.__turnIndicator.turnText.setValue("AI 턴");
+        this.__turnIndicator.turnText.setTextColor("#6b9eff");
+        this.__turnIndicator.loadingDots.setVisibility("excluded");
+        this.__stopLoadingAnimation();
+      } else {
+        // Player's turn
+        this.__turnIndicator.turnText.setValue("당신의 턴입니다");
+        this.__turnIndicator.turnText.setTextColor("#4CAF50");
+        this.__turnIndicator.loadingDots.setVisibility("excluded");
+        this.__stopLoadingAnimation();
+      }
+    },
+
+    /**
+     * Start loading dots animation
+     */
+    __startLoadingAnimation: function() {
+      var self = this;
+      var dots = ["", ".", "..", "..."];
+      var dotIndex = 0;
+
+      // Stop existing animation
+      this.__stopLoadingAnimation();
+
+      this.__turnAnimationTimer = setInterval(function() {
+        if (self.__turnIndicator && self.__turnIndicator.loadingDots && !self.__turnIndicator.loadingDots.isDisposed()) {
+          self.__turnIndicator.loadingDots.setValue(dots[dotIndex]);
+          dotIndex = (dotIndex + 1) % dots.length;
+        }
+      }, 400);
+    },
+
+    /**
+     * Stop loading animation
+     */
+    __stopLoadingAnimation: function() {
+      if (this.__turnAnimationTimer) {
+        clearInterval(this.__turnAnimationTimer);
+        this.__turnAnimationTimer = null;
+      }
+    },
+
+    /**
+     * Setup keyboard listener for ESC key (exit fullscreen)
+     */
+    __setupKeyboardListener: function() {
+      var self = this;
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && self.__isFullscreen) {
+          self.__exitFullscreen();
+        }
+      });
+    },
+
+    /**
+     * Create bottom AI chat panel - Vertical layout with scroll
+     */
+    __createBottomChatPanel: function() {
+      var titleContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(10));
+
+      var aiChatTitle = new qx.ui.basic.Label("AI 대화");
+      aiChatTitle.set({
+        textColor: "#6b9eff",
+        font: qx.bom.Font.fromString("bold 11px Arial")
+      });
+
+      // Check effect label
+      this.__checkEffectLabel = new qx.ui.basic.Label("장군이요!");
+      this.__checkEffectLabel.set({
+        textColor: "#ff4444",
+        font: qx.bom.Font.fromString("bold 14px Arial"),
+        backgroundColor: "#ffeeee",
+        padding: [3, 10],
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 4,
+          width: 2,
+          color: "#ff0000"
+        }),
+        visibility: "hidden"
+      });
+
+      titleContainer.add(aiChatTitle);
+      titleContainer.add(new qx.ui.core.Spacer(), {flex: 1});
+      titleContainer.add(this.__checkEffectLabel);
+
+      // Scroll container for AI chat - Vertical scrolling
+      this.__aiChatScroll = new qx.ui.container.Scroll();
+      this.__aiChatScroll.set({
+        backgroundColor: "#2d1810",
+        scrollbarY: "auto",
+        scrollbarX: "off"
+      });
+
+      // Vertical layout for chat messages
+      this.__aiChatList = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
+      this.__aiChatList.set({
+        backgroundColor: "#2d1810",
+        padding: 5
+      });
+
+      this.__aiChatScroll.add(this.__aiChatList);
+
+      // Add initial message
+      this.__addAIChatMessage("안녕하세요! 좋은 대국 하겠습니다.", "greeting");
+
+      this.__bottomPanel.add(titleContainer);
+      this.__bottomPanel.add(this.__aiChatScroll, {flex: 1});
+    },
+
+    /**
+     * Create side panel content - Compact version
      */
     __createSidePanelContent: function() {
-      // Turn indicator
-      var turnContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
+      // Turn + Score container
+      var turnContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
       turnContainer.set({
         backgroundColor: "#5a3d2a",
-        padding: 10,
+        padding: 8,
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 5,
           width: 2,
@@ -246,225 +498,160 @@ qx.Class.define("deskweb.ui.JanggiWindow",
         })
       });
 
-      var turnTitle = new qx.ui.basic.Label("TURN");
-      turnTitle.set({
-        textColor: "#c4a882",
-        font: qx.bom.Font.fromString("bold 11px Arial")
-      });
-
       this.__turnLabel = new qx.ui.basic.Label("Cho (Red)");
       this.__turnLabel.set({
         textColor: "#ff6b6b",
-        font: qx.bom.Font.fromString("bold 18px Arial"),
+        font: qx.bom.Font.fromString("bold 16px Arial"),
         textAlign: "center"
       });
 
-      turnContainer.add(turnTitle);
-      turnContainer.add(this.__turnLabel);
+      this.__scoreLabel = new qx.ui.basic.Label("Score: 0 - 0");
+      this.__scoreLabel.set({
+        textColor: "#d4a574",
+        font: qx.bom.Font.fromString("12px Arial"),
+        textAlign: "center"
+      });
 
-      // Captured pieces - Cho
-      var capturedChoContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
-      capturedChoContainer.set({
+      turnContainer.add(this.__turnLabel);
+      turnContainer.add(this.__scoreLabel);
+
+      // Captured pieces - Combined container
+      var capturedContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
+      capturedContainer.set({
         backgroundColor: "#5a3d2a",
-        padding: 10,
+        padding: 8,
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 5
         })
       });
 
-      var capturedChoTitle = new qx.ui.basic.Label("Cho Captured");
-      capturedChoTitle.set({
+      var capturedTitle = new qx.ui.basic.Label("Captured");
+      capturedTitle.set({
         textColor: "#c4a882",
-        font: qx.bom.Font.fromString("bold 11px Arial")
+        font: qx.bom.Font.fromString("bold 10px Arial")
       });
 
+      var choRow = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
+      var choLabel = new qx.ui.basic.Label("Cho:");
+      choLabel.set({ textColor: "#ff6b6b", font: qx.bom.Font.fromString("10px Arial"), width: 35 });
       this.__capturedChoLabel = new qx.ui.basic.Label("-");
       this.__capturedChoLabel.set({
         textColor: "#ff6b6b",
-        font: qx.bom.Font.fromString("14px serif"),
-        rich: true
+        font: qx.bom.Font.fromString("12px serif")
       });
+      choRow.add(choLabel);
+      choRow.add(this.__capturedChoLabel);
 
-      capturedChoContainer.add(capturedChoTitle);
-      capturedChoContainer.add(this.__capturedChoLabel);
-
-      // Captured pieces - Han
-      var capturedHanContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
-      capturedHanContainer.set({
-        backgroundColor: "#5a3d2a",
-        padding: 10,
-        decorator: new qx.ui.decoration.Decorator().set({
-          radius: 5
-        })
-      });
-
-      var capturedHanTitle = new qx.ui.basic.Label("Han Captured");
-      capturedHanTitle.set({
-        textColor: "#c4a882",
-        font: qx.bom.Font.fromString("bold 11px Arial")
-      });
-
+      var hanRow = new qx.ui.container.Composite(new qx.ui.layout.HBox(5));
+      var hanLabel = new qx.ui.basic.Label("Han:");
+      hanLabel.set({ textColor: "#6b9eff", font: qx.bom.Font.fromString("10px Arial"), width: 35 });
       this.__capturedHanLabel = new qx.ui.basic.Label("-");
       this.__capturedHanLabel.set({
         textColor: "#6b9eff",
-        font: qx.bom.Font.fromString("14px serif"),
-        rich: true
+        font: qx.bom.Font.fromString("12px serif")
       });
+      hanRow.add(hanLabel);
+      hanRow.add(this.__capturedHanLabel);
 
-      capturedHanContainer.add(capturedHanTitle);
-      capturedHanContainer.add(this.__capturedHanLabel);
+      capturedContainer.add(capturedTitle);
+      capturedContainer.add(choRow);
+      capturedContainer.add(hanRow);
 
-      // Move history
-      var historyContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
+      // Move history - Compact
+      var historyContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
       historyContainer.set({
         backgroundColor: "#5a3d2a",
-        padding: 10,
+        padding: 8,
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 5
         })
       });
 
-      var historyTitle = new qx.ui.basic.Label("MOVE HISTORY");
+      var historyTitle = new qx.ui.basic.Label("History");
       historyTitle.set({
         textColor: "#c4a882",
-        font: qx.bom.Font.fromString("bold 11px Arial")
+        font: qx.bom.Font.fromString("bold 10px Arial")
       });
 
       this.__historyList = new qx.ui.form.List();
       this.__historyList.set({
-        height: 150,
         backgroundColor: "#3d2a1f",
-        textColor: "#c4a882"
+        textColor: "#c4a882",
+        font: qx.bom.Font.fromString("10px Arial")
       });
 
       historyContainer.add(historyTitle);
       historyContainer.add(this.__historyList, {flex: 1});
 
-      // AI Chat container
-      this.__aiChatContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
-      this.__aiChatContainer.set({
-        backgroundColor: "#4a3d35",
-        padding: 10,
-        decorator: new qx.ui.decoration.Decorator().set({
-          radius: 5,
-          width: 2,
-          color: "#6b9eff"
-        })
-      });
-
-      var aiChatTitle = new qx.ui.basic.Label("🤖 AI 생각");
-      aiChatTitle.set({
-        textColor: "#6b9eff",
-        font: qx.bom.Font.fromString("bold 11px Arial")
-      });
-
-      // Scroll container for AI chat
-      this.__aiChatScroll = new qx.ui.container.Scroll();
-      this.__aiChatScroll.set({
-        height: 100,
-        backgroundColor: "#3d2a1f"
-      });
-
-      this.__aiChatList = new qx.ui.container.Composite(new qx.ui.layout.VBox(5));
-      this.__aiChatList.set({
-        backgroundColor: "#3d2a1f",
-        padding: 5
-      });
-
-      this.__aiChatScroll.add(this.__aiChatList);
-
-      // Add initial message
-      this.__addAIChatMessage("안녕하세요! 저는 AI입니다. 좋은 대국 하겠습니다.", "greeting");
-
-      this.__aiChatContainer.add(aiChatTitle);
-      this.__aiChatContainer.add(this.__aiChatScroll, {flex: 1});
-
-      // Check effect label (hidden by default)
-      this.__checkEffectLabel = new qx.ui.basic.Label("⚡ 장군이요! ⚡");
-      this.__checkEffectLabel.set({
-        textColor: "#ff4444",
-        font: qx.bom.Font.fromString("bold 16px Arial"),
-        textAlign: "center",
-        backgroundColor: "#ffeeee",
-        padding: [8, 15],
-        decorator: new qx.ui.decoration.Decorator().set({
-          radius: 8,
-          width: 3,
-          color: "#ff0000"
-        }),
-        visibility: "hidden"
-      });
-
-      // Controls info
-      var controlsContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(3));
+      // Controls info - Very compact
+      var controlsContainer = new qx.ui.container.Composite(new qx.ui.layout.VBox(2));
       controlsContainer.set({
         backgroundColor: "#5a3d2a",
-        padding: 10,
+        padding: 6,
         decorator: new qx.ui.decoration.Decorator().set({
           radius: 5
         })
       });
 
-      var controlsTitle = new qx.ui.basic.Label("조작법");
-      controlsTitle.set({
-        textColor: "#c4a882",
-        font: qx.bom.Font.fromString("bold 11px Arial")
+      var controlsInfo = new qx.ui.basic.Label("Click to select | You are Cho (Red)");
+      controlsInfo.set({
+        textColor: "#a08060",
+        font: qx.bom.Font.fromString("9px Arial"),
+        textAlign: "center"
       });
 
-      var controls = [
-        "말 클릭 → 선택",
-        "초록색 → 이동 가능",
-        "빨간색 → 잡기 가능",
-        "당신은 초(아래) 입니다"
-      ];
-
-      controlsContainer.add(controlsTitle);
-      controls.forEach(function(text) {
-        var label = new qx.ui.basic.Label(text);
-        label.set({
-          textColor: "#a08060",
-          font: qx.bom.Font.fromString("10px Arial")
-        });
-        controlsContainer.add(label);
+      var colorInfo = new qx.ui.basic.Label("Green=Move | Red=Capture");
+      colorInfo.set({
+        textColor: "#a08060",
+        font: qx.bom.Font.fromString("9px Arial"),
+        textAlign: "center"
       });
+
+      controlsContainer.add(controlsInfo);
+      controlsContainer.add(colorInfo);
 
       // Add all containers
       this.__sidePanel.add(turnContainer);
-      this.__sidePanel.add(this.__checkEffectLabel);
-      this.__sidePanel.add(capturedChoContainer);
-      this.__sidePanel.add(capturedHanContainer);
-      this.__sidePanel.add(this.__aiChatContainer, {flex: 1});
-      this.__sidePanel.add(historyContainer);
+      this.__sidePanel.add(capturedContainer);
+      this.__sidePanel.add(historyContainer, {flex: 1});
       this.__sidePanel.add(controlsContainer);
     },
 
     /**
-     * Add a message to AI chat
+     * Add a message to AI chat (vertical layout with scroll to bottom)
      */
     __addAIChatMessage: function(message, type) {
       var msgLabel = new qx.ui.basic.Label(message);
       var color = "#c4a882";
+      var bgColor = "transparent";
 
       if (type === "tactical") {
-        color = "#90EE90"; // Light green for tactical
+        color = "#90EE90";
+        bgColor = "rgba(144, 238, 144, 0.15)";
       } else if (type === "comment") {
-        color = "#87CEEB"; // Light blue for comments
+        color = "#87CEEB";
+        bgColor = "rgba(135, 206, 235, 0.15)";
       } else if (type === "warning") {
-        color = "#FFB6C1"; // Light pink for warnings
+        color = "#FFB6C1";
+        bgColor = "rgba(255, 182, 193, 0.15)";
       } else if (type === "greeting") {
-        color = "#DDA0DD"; // Plum for greetings
+        color = "#DDA0DD";
+        bgColor = "rgba(221, 160, 221, 0.15)";
       }
 
       msgLabel.set({
         textColor: color,
+        backgroundColor: bgColor,
         font: qx.bom.Font.fromString("11px Arial"),
-        rich: true,
-        wrap: true
+        padding: [2, 6],
+        decorator: new qx.ui.decoration.Decorator().set({
+          radius: 3
+        })
       });
 
-      // Keep only last 10 messages
+      // Keep only last 20 messages
       var children = this.__aiChatList.getChildren();
-      if (children.length >= 10) {
+      if (children.length >= 20) {
         this.__aiChatList.removeAt(0);
       }
 
@@ -474,7 +661,7 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       var self = this;
       setTimeout(function() {
         if (self.__aiChatScroll && !self.__aiChatScroll.isDisposed()) {
-          self.__aiChatScroll.scrollToY(10000);
+          self.__aiChatScroll.scrollToY(100000);
         }
       }, 50);
     },
@@ -552,30 +739,106 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     __setupClickHandler: function(containerEl) {
       var self = this;
 
-      containerEl.addEventListener('click', function(e) {
-        var rect = containerEl.getBoundingClientRect();
-        var x = e.clientX - rect.left;
-        var y = e.clientY - rect.top;
+      // Track mouse state for drag detection
+      var mouseDownX = 0;
+      var mouseDownY = 0;
+      var isDragging = false;
+      var dragThreshold = 5; // pixels to consider as drag
 
-        var boardPos = self.__game.screenToBoard(x, y, rect.width, rect.height);
-        if (boardPos) {
-          self.__game.handleClick(boardPos.row, boardPos.col);
+      // Mouse down - start potential drag
+      containerEl.addEventListener('mousedown', function(e) {
+        if (e.button === 0) { // Left click only
+          mouseDownX = e.clientX;
+          mouseDownY = e.clientY;
+          self.__lastMouseX = e.clientX;
+          self.__lastMouseY = e.clientY;
+          self.__isDragging = false;
+          isDragging = false;
         }
       });
 
-      console.log("[JanggiWindow] Click handler setup");
+      // Mouse move - handle drag for camera rotation
+      containerEl.addEventListener('mousemove', function(e) {
+        if (e.buttons === 1) { // Left button held
+          var deltaX = e.clientX - self.__lastMouseX;
+          var deltaY = e.clientY - self.__lastMouseY;
+
+          // Check if we've moved enough to consider it a drag
+          var totalDeltaX = Math.abs(e.clientX - mouseDownX);
+          var totalDeltaY = Math.abs(e.clientY - mouseDownY);
+
+          if (totalDeltaX > dragThreshold || totalDeltaY > dragThreshold) {
+            isDragging = true;
+            self.__isDragging = true;
+
+            // Rotate camera based on mouse movement
+            var currentAngleY = self.__game.getCameraAngleY();
+            var currentAngleX = self.__game.getCameraAngleX();
+
+            // Horizontal drag -> Y rotation (left/right)
+            self.__game.setCameraAngleY(currentAngleY + deltaX * 0.005);
+
+            // Vertical drag -> X rotation (tilt) - clamped
+            var newAngleX = currentAngleX - deltaY * 0.003;
+            newAngleX = Math.max(0.3, Math.min(1.4, newAngleX));
+            self.__game.setCameraAngleX(newAngleX);
+          }
+
+          self.__lastMouseX = e.clientX;
+          self.__lastMouseY = e.clientY;
+        }
+      });
+
+      // Mouse up - handle click only if not dragging
+      containerEl.addEventListener('mouseup', function(e) {
+        if (e.button === 0 && !isDragging) {
+          var rect = containerEl.getBoundingClientRect();
+          var x = e.clientX - rect.left;
+          var y = e.clientY - rect.top;
+
+          var boardPos = self.__game.screenToBoard(x, y, rect.width, rect.height);
+          if (boardPos) {
+            self.__game.handleClick(boardPos.row, boardPos.col);
+          }
+        }
+        isDragging = false;
+        self.__isDragging = false;
+      });
+
+      // Mouse wheel - zoom in/out
+      containerEl.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var currentDistance = self.__game.getCameraDistance();
+        var zoomSpeed = 0.5;
+
+        if (e.deltaY > 0) {
+          // Scroll down - zoom out
+          self.__game.setCameraDistance(Math.min(30, currentDistance + zoomSpeed));
+        } else {
+          // Scroll up - zoom in
+          self.__game.setCameraDistance(Math.max(8, currentDistance - zoomSpeed));
+        }
+      }, { passive: false });
+
+      console.log("[JanggiWindow] Click and mouse handlers setup");
     },
 
     /**
-     * Handle window resize
+     * Handle window resize - Fill container completely
      */
     __onResize: function() {
       if (!this.__is3DInitialized) return;
 
-      var bounds = this.__canvasContainer.getBounds();
-      if (bounds) {
-        this.__game.resize(bounds.width, bounds.height);
-      }
+      var self = this;
+
+      // Use setTimeout to ensure layout is complete
+      setTimeout(function() {
+        var bounds = self.__canvasContainer.getBounds();
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          console.log("[JanggiWindow] Resizing renderer to:", bounds.width, "x", bounds.height);
+          self.__game.resize(bounds.width, bounds.height);
+        }
+      }, 50);
     },
 
     /**
@@ -600,6 +863,9 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       this.__capturedChoLabel.setValue("-");
       this.__capturedHanLabel.setValue("-");
       this.__statusLabel.setValue("Game started. Your turn (Cho/Red).");
+
+      // Reset turn indicator to player's turn
+      this.__updateTurnIndicator(false, false);
     },
 
     /**
@@ -823,9 +1089,13 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       if (currentPlayer === "cho") {
         this.__turnLabel.setValue("Cho (Red)");
         this.__turnLabel.setTextColor("#ff6b6b");
+        // Update turn indicator - player's turn
+        this.__updateTurnIndicator(false, false);
       } else {
         this.__turnLabel.setValue("Han (Blue)");
         this.__turnLabel.setTextColor("#6b9eff");
+        // Update turn indicator - AI's turn (not thinking yet)
+        this.__updateTurnIndicator(true, false);
       }
 
       console.log("[JanggiWindow] Game state changed:", state, "Current player:", currentPlayer);
@@ -866,9 +1136,15 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       // Update captured pieces display
       this.__updateCapturedDisplay();
 
-      this.__statusLabel.setValue(
-        data.piece.team === "cho" ? "AI is thinking..." : "Your turn (Cho/Red)"
-      );
+      // Update status and turn indicator
+      if (data.piece.team === "cho") {
+        this.__statusLabel.setValue("AI is thinking...");
+        // AI will think next, indicator will be updated by __onAIThinking
+      } else {
+        this.__statusLabel.setValue("Your turn (Cho/Red)");
+        // Player's turn
+        this.__updateTurnIndicator(false, false);
+      }
     },
 
     /**
@@ -899,19 +1175,147 @@ qx.Class.define("deskweb.ui.JanggiWindow",
     },
 
     /**
-     * Handle game over
+     * Handle game over - Show result and prompt for new game
      */
     __onGameOver: function(e) {
+      var self = this;
       var data = e.getData();
-      var winner = data.winner === "cho" ? "Cho (Red)" : "Han (Blue)";
+      var winner = data.winner === "cho" ? "Cho (Red/You)" : "Han (Blue/AI)";
+      var reason = data.reason || "capture";
+      var score = data.score || { cho: 0, han: 0 };
 
-      console.log("[JanggiWindow] Game over! Winner:", winner);
+      console.log("[JanggiWindow] Game over! Winner:", winner, "Reason:", reason);
 
+      // Update score display
+      this.__updateScoreDisplay(score);
+
+      // Determine result message based on reason
+      var reasonText = "";
+      if (reason === "checkmate") {
+        reasonText = "Checkmate! (외통수)";
+      } else if (reason === "capture") {
+        reasonText = "King Captured! (왕 잡힘)";
+      } else if (reason === "stalemate") {
+        reasonText = "No moves available! (수 없음)";
+      }
+
+      var resultMessage = data.winner === "cho" ? "You Win!" : "AI Wins!";
+
+      this.__statusLabel.setValue("Game Over! " + resultMessage);
+
+      // Show game over dialog
       setTimeout(function() {
-        alert("Game Over!\n\nWinner: " + winner + "\n\nClick 'New Game' to play again.");
-      }, 500);
+        self.__showGameOverDialog(winner, reasonText, score, data.winner === "cho");
+      }, 800);
+    },
 
-      this.__statusLabel.setValue("Game Over! Winner: " + winner);
+    /**
+     * Show game over dialog with new game option
+     */
+    __showGameOverDialog: function(winner, reason, score, isPlayerWin) {
+      var self = this;
+
+      var win = new qx.ui.window.Window("Game Over");
+      win.setLayout(new qx.ui.layout.VBox(15));
+      win.set({
+        width: 320,
+        height: 280,
+        modal: true,
+        showMinimize: false,
+        showMaximize: false,
+        showClose: false,
+        contentPadding: 20,
+        backgroundColor: "#2d1810"
+      });
+
+      // Result emoji and text
+      var resultLabel = new qx.ui.basic.Label(isPlayerWin ? "Victory!" : "Defeat");
+      resultLabel.set({
+        textColor: isPlayerWin ? "#4CAF50" : "#f44336",
+        font: qx.bom.Font.fromString("bold 28px Arial"),
+        textAlign: "center"
+      });
+
+      // Reason label
+      var reasonLabel = new qx.ui.basic.Label(reason);
+      reasonLabel.set({
+        textColor: "#d4a574",
+        font: qx.bom.Font.fromString("14px Arial"),
+        textAlign: "center"
+      });
+
+      // Winner label
+      var winnerLabel = new qx.ui.basic.Label("Winner: " + winner);
+      winnerLabel.set({
+        textColor: "#c4a882",
+        font: qx.bom.Font.fromString("12px Arial"),
+        textAlign: "center"
+      });
+
+      // Score display
+      var scoreLabel = new qx.ui.basic.Label("Session Score: You " + score.cho + " - " + score.han + " AI");
+      scoreLabel.set({
+        textColor: "#a08060",
+        font: qx.bom.Font.fromString("bold 14px Arial"),
+        textAlign: "center",
+        padding: [10, 0]
+      });
+
+      // Button container
+      var btnContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(15));
+      btnContainer.set({ allowGrowX: true });
+
+      // New Game button
+      var newGameBtn = new qx.ui.form.Button("New Game");
+      newGameBtn.set({
+        width: 120,
+        height: 35,
+        backgroundColor: "#4CAF50",
+        textColor: "#fff",
+        font: qx.bom.Font.fromString("bold 13px Arial")
+      });
+      newGameBtn.addListener("execute", function() {
+        win.close();
+        self.__onNewGame();
+      });
+
+      // Close button
+      var closeBtn = new qx.ui.form.Button("Close");
+      closeBtn.set({
+        width: 120,
+        height: 35,
+        backgroundColor: "#5a3d2a",
+        textColor: "#fff"
+      });
+      closeBtn.addListener("execute", function() {
+        win.close();
+      });
+
+      btnContainer.add(new qx.ui.core.Spacer(), {flex: 1});
+      btnContainer.add(newGameBtn);
+      btnContainer.add(closeBtn);
+      btnContainer.add(new qx.ui.core.Spacer(), {flex: 1});
+
+      win.add(resultLabel);
+      win.add(reasonLabel);
+      win.add(winnerLabel);
+      win.add(scoreLabel);
+      win.add(new qx.ui.core.Spacer(), {flex: 1});
+      win.add(btnContainer);
+
+      var app = qx.core.Init.getApplication();
+      app.getRoot().add(win, {left: 100, top: 100});
+      win.center();
+      win.open();
+    },
+
+    /**
+     * Update score display
+     */
+    __updateScoreDisplay: function(score) {
+      if (this.__scoreLabel) {
+        this.__scoreLabel.setValue("Score: " + score.cho + " - " + score.han);
+      }
     },
 
     /**
@@ -922,7 +1326,8 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       if (data.thinking) {
         this.__statusLabel.setValue("AI is thinking...");
         this.__turnLabel.setValue("Han (Thinking...)");
-        this.__addAIChatMessage("음... 생각 중입니다...", "tactical");
+        // Update turn indicator with loading animation
+        this.__updateTurnIndicator(true, true);
       }
     },
 
@@ -968,6 +1373,102 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       if (data.comment) {
         this.__addAIChatMessage("💬 " + data.comment, "comment");
       }
+    },
+
+    /**
+     * Toggle fullscreen mode
+     */
+    __toggleFullscreen: function() {
+      if (this.__isFullscreen) {
+        this.__exitFullscreen();
+      } else {
+        this.__enterFullscreen();
+      }
+    },
+
+    /**
+     * Enter fullscreen mode - maintain aspect ratio
+     */
+    __enterFullscreen: function() {
+      var self = this;
+      var app = qx.core.Init.getApplication();
+      var root = app.getRoot();
+      var rootBounds = root.getBounds();
+
+      if (!rootBounds) return;
+
+      // Save current bounds
+      this.__savedBounds = this.getBounds();
+
+      // Calculate fullscreen size maintaining aspect ratio
+      var screenWidth = rootBounds.width;
+      var screenHeight = rootBounds.height;
+
+      // Hide toolbar and side panel in fullscreen
+      this.__toolbar.setVisibility("excluded");
+      this.__sidePanel.setVisibility("excluded");
+      this.__bottomPanel.setHeight(60);
+      this.__statusBar.setVisibility("excluded");
+
+      // Set window to fullscreen
+      this.set({
+        left: 0,
+        top: 0,
+        width: screenWidth,
+        height: screenHeight,
+        showMinimize: false,
+        showMaximize: false,
+        showClose: false,
+        movable: false,
+        resizable: false
+      });
+
+      this.__isFullscreen = true;
+
+      // Update renderer after layout settles
+      setTimeout(function() {
+        self.__onResize();
+      }, 100);
+
+      console.log("[JanggiWindow] Entered fullscreen mode");
+    },
+
+    /**
+     * Exit fullscreen mode
+     */
+    __exitFullscreen: function() {
+      var self = this;
+
+      if (!this.__savedBounds) return;
+
+      // Restore visibility
+      this.__toolbar.setVisibility("visible");
+      this.__sidePanel.setVisibility("visible");
+      this.__bottomPanel.setHeight(100);
+      this.__statusBar.setVisibility("visible");
+
+      // Restore window properties
+      this.set({
+        left: this.__savedBounds.left,
+        top: this.__savedBounds.top,
+        width: this.__savedBounds.width,
+        height: this.__savedBounds.height,
+        showMinimize: true,
+        showMaximize: true,
+        showClose: true,
+        movable: true,
+        resizable: true
+      });
+
+      this.__isFullscreen = false;
+      this.__savedBounds = null;
+
+      // Update renderer after layout settles
+      setTimeout(function() {
+        self.__onResize();
+      }, 100);
+
+      console.log("[JanggiWindow] Exited fullscreen mode");
     },
 
     /**
@@ -1201,6 +1702,9 @@ qx.Class.define("deskweb.ui.JanggiWindow",
   destruct : function()
   {
     console.log("[JanggiWindow] Disposing...");
+
+    // Stop loading animation timer
+    this.__stopLoadingAnimation();
 
     if (this.__game) {
       this.__game.dispose();

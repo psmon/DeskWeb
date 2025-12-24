@@ -51,6 +51,10 @@ qx.Class.define("deskweb.game.JanggiGame",
     this.__currentPlayer = "cho"; // "cho" (red/bottom) or "han" (blue/top)
     this.__gameState = "ready"; // ready, playing, paused, gameover
     this.__winner = null;
+    this.__gameEndReason = null; // "checkmate", "capture", "stalemate"
+
+    // Score tracking
+    this.__score = { cho: 0, han: 0 };
 
     // Game history
     this.__moveHistory = [];
@@ -198,6 +202,8 @@ qx.Class.define("deskweb.game.JanggiGame",
     __currentPlayer: null,
     __gameState: null,
     __winner: null,
+    __gameEndReason: null,
+    __score: null,
     __moveHistory: null,
     __capturedPieces: null,
     __isAIThinking: null,
@@ -1305,6 +1311,51 @@ qx.Class.define("deskweb.game.JanggiGame",
     },
 
     /**
+     * Check if team is in checkmate (no valid moves to escape check)
+     */
+    __isCheckmate: function(team) {
+      // Must be in check first
+      if (!this.__isInCheck(team)) {
+        return false;
+      }
+
+      // Try all possible moves for the team
+      for (var row = 0; row < this.__rows; row++) {
+        for (var col = 0; col < this.__cols; col++) {
+          var piece = this.__board[row][col];
+          if (piece && piece.team === team) {
+            var moves = this.__getValidMoves(row, col, piece);
+            // If any piece has a valid move, not checkmate
+            if (moves.length > 0) {
+              return false;
+            }
+          }
+        }
+      }
+
+      console.log("[JanggiGame] Checkmate detected for team:", team);
+      return true;
+    },
+
+    /**
+     * Check if team has any valid moves (for stalemate detection)
+     */
+    __hasAnyValidMoves: function(team) {
+      for (var row = 0; row < this.__rows; row++) {
+        for (var col = 0; col < this.__cols; col++) {
+          var piece = this.__board[row][col];
+          if (piece && piece.team === team) {
+            var moves = this.__getValidMoves(row, col, piece);
+            if (moves.length > 0) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    },
+
+    /**
      * Get valid moves without check validation (to avoid infinite recursion)
      */
     __getValidMovesWithoutCheckTest: function(row, col, piece) {
@@ -1370,8 +1421,16 @@ qx.Class.define("deskweb.game.JanggiGame",
           // Check for king capture (game over)
           if (captured.type === "KING") {
             self.__winner = piece.team;
+            self.__gameEndReason = "capture";
+            self.__score[piece.team]++;
             self.__gameState = "gameover";
-            self.fireDataEvent("gameOver", { winner: self.__winner });
+            console.log("[JanggiGame] Game Over - King captured by:", piece.team);
+            self.fireDataEvent("gameOver", {
+              winner: self.__winner,
+              reason: "capture",
+              score: self.__score
+            });
+            return;
           }
         }
 
@@ -1386,6 +1445,38 @@ qx.Class.define("deskweb.game.JanggiGame",
 
         // Check if opponent's king is now in check
         var opponentInCheck = self.__isInCheck(self.__currentPlayer);
+
+        // Check for checkmate (외통수)
+        if (self.__isCheckmate(self.__currentPlayer)) {
+          self.__winner = piece.team;
+          self.__gameEndReason = "checkmate";
+          self.__score[piece.team]++;
+          self.__gameState = "gameover";
+          console.log("[JanggiGame] CHECKMATE! Winner:", piece.team);
+          self.fireDataEvent("gameOver", {
+            winner: self.__winner,
+            reason: "checkmate",
+            score: self.__score
+          });
+          return;
+        }
+
+        // Check for stalemate (no valid moves but not in check)
+        if (!self.__hasAnyValidMoves(self.__currentPlayer)) {
+          // In Janggi, if you have no moves and not in check, you lose (passing is not allowed in competitive)
+          self.__winner = piece.team;
+          self.__gameEndReason = "stalemate";
+          self.__score[piece.team]++;
+          self.__gameState = "gameover";
+          console.log("[JanggiGame] Stalemate - no moves available for:", self.__currentPlayer);
+          self.fireDataEvent("gameOver", {
+            winner: self.__winner,
+            reason: "stalemate",
+            score: self.__score
+          });
+          return;
+        }
+
         if (opponentInCheck) {
           console.log("[JanggiGame] 장군! (Check!)");
           self.fireDataEvent("checkOccurred", {
@@ -1953,10 +2044,12 @@ Example response:
       this.__currentPlayer = "cho";
       this.__gameState = "playing";
       this.__winner = null;
+      this.__gameEndReason = null;
       this.__moveHistory = [];
       this.__capturedPieces = { cho: [], han: [] };
       this.__selectedPiece = null;
       this.__validMoves = [];
+      // Don't reset score - keep cumulative score across games
 
       // Clear and recreate pieces
       Object.keys(this.__pieceMeshes).forEach(function(id) {
@@ -2055,6 +2148,8 @@ Example response:
     getMoveHistory: function() { return this.__moveHistory; },
     getCapturedPieces: function() { return this.__capturedPieces; },
     getWinner: function() { return this.__winner; },
+    getGameEndReason: function() { return this.__gameEndReason; },
+    getScore: function() { return this.__score; },
     isAIThinking: function() { return this.__isAIThinking; },
     getSessionId: function() { return this.__sessionId; },
     getCameraDistance: function() { return this.__cameraDistance; },
