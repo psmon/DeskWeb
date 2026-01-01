@@ -1,7 +1,21 @@
-# .gitignore template for skeleton-based apps
-/compiled
-/qx_packages
+# .gitignore for multi-project structure
+
+# Build output (all projects)
+**/compiled
+compiled/
+
+# Dependencies (all projects)
+**/node_modules
+node_modules/
+
+# Qooxdoo packages
+**/qx_packages
 .package-cache.json
+
+# Environment
 .env
-/node_modules
-/.venv
+**/.env
+
+# Python virtual environment
+.venv/
+**/.venv
