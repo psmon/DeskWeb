@@ -35,6 +35,8 @@ qx.Class.define("deskweb.Application",
     __iconPositionManager: null,
     __customApps: null,
     __desktopContextMenu: null,
+    __selectedIcon: null,
+    __desktopIcons: null,
 
     /**
      * This method contains the initial application code and gets called
@@ -69,8 +71,9 @@ qx.Class.define("deskweb.Application",
       this.__registry = deskweb.util.FileExtensionRegistry.getInstance();
       this.__iconPositionManager = deskweb.util.IconPositionManager.getInstance();
 
-      // Initialize custom apps array
+      // Initialize custom apps array and icon tracking
       this.__customApps = [];
+      this.__desktopIcons = [];
       this._loadCustomApps();
 
       console.log("[Application] Storage, registry, and icon position manager initialized");
@@ -105,6 +108,9 @@ qx.Class.define("deskweb.Application",
 
       // Setup desktop context menu for adding apps
       this._setupDesktopContextMenu();
+
+      // Click on desktop background to deselect all icons
+      this.__desktop.addListener("click", this._deselectAllIcons, this);
 
       console.log("[Application] DeskWeb started successfully");
     },
@@ -267,6 +273,14 @@ qx.Class.define("deskweb.Application",
 
         // Add action listener
         icon.addListener("open", iconDef.action, this);
+
+        // Add selection listener
+        icon.addListener("iconSelect", function() {
+          this._selectIcon(icon);
+        }, this);
+
+        // Track icon
+        this.__desktopIcons.push(icon);
 
         // Add to desktop
         this.__desktop.add(icon);
@@ -754,8 +768,10 @@ qx.Class.define("deskweb.Application",
      * Create icon for custom app
      */
     _createCustomAppIcon: function(appDef) {
-      // Create icon with unique ID
-      var icon = new deskweb.ui.DesktopIcon(appDef.label, appDef.icon, appDef.id);
+      // For favicon mode, create without default icon to prevent overlap
+      var isFavicon = appDef.url && (!appDef.iconType || appDef.iconType === "favicon");
+      var iconImage = isFavicon ? null : appDef.icon;
+      var icon = new deskweb.ui.DesktopIcon(appDef.label, iconImage, appDef.id);
 
       // Check if there's a saved position
       var savedPosition = this.__iconPositionManager.getIconPosition(appDef.id);
@@ -770,16 +786,39 @@ qx.Class.define("deskweb.Application",
         this._openCustomApp(appDef);
       }, this);
 
-      // Add context menu for custom apps (delete option)
+      // Add selection listener
+      icon.addListener("iconSelect", function() {
+        this._selectIcon(icon);
+      }, this);
+
+      // Add context menu for custom apps (delete + change icon)
       if (appDef.isCustom) {
         var contextMenu = new qx.ui.menu.Menu();
+
+        var changeIconButton = new qx.ui.menu.Button("Change Icon...");
+        changeIconButton.addListener("execute", function() {
+          this._showIconChooser(appDef, icon);
+        }, this);
+        contextMenu.add(changeIconButton);
+
+        contextMenu.add(new qx.ui.menu.Separator());
+
         var deleteButton = new qx.ui.menu.Button("Delete App");
         deleteButton.addListener("execute", function() {
           this._deleteCustomApp(appDef.id);
         }, this);
         contextMenu.add(deleteButton);
+
         icon.setContextMenu(contextMenu);
       }
+
+      // Apply favicon if iconType is favicon or no iconType set (try favicon by default)
+      if (appDef.url && (!appDef.iconType || appDef.iconType === "favicon")) {
+        icon.setFaviconFromUrl(appDef.url);
+      }
+
+      // Track icon
+      this.__desktopIcons.push(icon);
 
       // Add to desktop
       this.__desktop.add(icon);
@@ -825,8 +864,13 @@ qx.Class.define("deskweb.Application",
       for (var i = 0; i < children.length; i++) {
         var child = children[i];
         if (child instanceof deskweb.ui.DesktopIcon) {
-          if (child.getUserData("iconId") === appId) {
+          if (child.getIconId() === appId) {
             this.__desktop.remove(child);
+            // Remove from tracked icons
+            var idx = this.__desktopIcons.indexOf(child);
+            if (idx >= 0) {
+              this.__desktopIcons.splice(idx, 1);
+            }
             child.dispose();
             break;
           }
@@ -861,6 +905,158 @@ qx.Class.define("deskweb.Application",
         console.error("[Application] Failed to load custom apps:", error);
         this.__customApps = [];
       }
+    },
+
+    /**
+     * Select an icon and deselect others
+     */
+    _selectIcon: function(targetIcon) {
+      // Deselect all icons
+      this.__desktopIcons.forEach(function(icon) {
+        icon.deselect();
+      });
+      // Select the target
+      targetIcon.select();
+      this.__selectedIcon = targetIcon;
+    },
+
+    /**
+     * Deselect all icons
+     */
+    _deselectAllIcons: function(e) {
+      this.__desktopIcons.forEach(function(icon) {
+        icon.deselect();
+      });
+      this.__selectedIcon = null;
+    },
+
+    /**
+     * Show icon chooser dialog for custom apps
+     */
+    _showIconChooser: function(appDef, iconWidget) {
+      var dialog = new qx.ui.window.Window("Change Icon");
+      dialog.setLayout(new qx.ui.layout.VBox(10));
+      dialog.set({
+        width: 360,
+        height: 320,
+        modal: true,
+        showMinimize: false,
+        showMaximize: false,
+        showClose: true,
+        contentPadding: 15
+      });
+
+      dialog.add(new qx.ui.basic.Label("Select an icon:").set({
+        font: "bold"
+      }));
+
+      // Icon options grid
+      var grid = new qx.ui.container.Composite(new qx.ui.layout.Flow(8, 8));
+
+      var iconOptions = [
+        { type: "favicon", label: "Favicon", icon: null },
+        { type: "preset", label: "Web", icon: "deskweb/images/askbot.svg" },
+        { type: "preset", label: "Chat", icon: "deskweb/images/chatbot.svg" },
+        { type: "preset", label: "Document", icon: "deskweb/images/notepad.svg" },
+        { type: "preset", label: "Computer", icon: "deskweb/images/computer.svg" },
+        { type: "preset", label: "Folder", icon: "deskweb/images/folder.svg" },
+        { type: "preset", label: "Canvas", icon: "deskweb/images/canvas.svg" },
+        { type: "preset", label: "Settings", icon: "deskweb/images/settings.svg" },
+        { type: "preset", label: "Calc", icon: "deskweb/images/calc.svg" },
+        { type: "preset", label: "Help", icon: "deskweb/images/help.svg" },
+        { type: "preset", label: "Game", icon: "deskweb/images/cards.svg" },
+        { type: "preset", label: "HWP", icon: "deskweb/images/hwp.svg" }
+      ];
+
+      var selectedOption = { type: appDef.iconType || "favicon" };
+
+      iconOptions.forEach(function(opt) {
+        var btn = new qx.ui.form.Button(null);
+        btn.set({
+          width: 60,
+          height: 60,
+          toolTipText: opt.label
+        });
+
+        if (opt.type === "favicon") {
+          btn.setLabel("Fav");
+          btn.addListenerOnce("appear", function() {
+            var el = btn.getContentElement().getDomElement();
+            if (el && appDef.url) {
+              try {
+                var urlObj = new URL(appDef.url);
+                var domain = urlObj.hostname;
+                var favUrl = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=64";
+                var img = document.createElement("img");
+                img.src = favUrl;
+                img.style.width = "28px";
+                img.style.height = "28px";
+                img.style.display = "block";
+                img.style.margin = "2px auto";
+                img.style.objectFit = "contain";
+                img.onerror = function() {
+                  img.style.display = "none";
+                };
+                el.insertBefore(img, el.firstChild);
+              } catch(err) {}
+            }
+          });
+        } else {
+          btn.setIcon(opt.icon);
+        }
+
+        // Highlight currently selected type
+        if ((opt.type === "favicon" && (!appDef.iconType || appDef.iconType === "favicon")) ||
+            (opt.type === "preset" && appDef.icon === opt.icon && appDef.iconType === "preset")) {
+          btn.getContentElement().setStyle("border", "2px solid #0054E3");
+        }
+
+        btn.addListener("execute", function() {
+          selectedOption = opt;
+          // Update visual selection
+          var btns = grid.getChildren();
+          btns.forEach(function(b) {
+            b.getContentElement().setStyle("border", "");
+          });
+          btn.getContentElement().setStyle("border", "2px solid #0054E3");
+        });
+
+        grid.add(btn);
+      }, this);
+
+      dialog.add(grid, {flex: 1});
+
+      // Buttons
+      var buttonContainer = new qx.ui.container.Composite(new qx.ui.layout.HBox(10, "right"));
+
+      var cancelButton = new qx.ui.form.Button("Cancel");
+      cancelButton.addListener("execute", function() {
+        dialog.close();
+      });
+      buttonContainer.add(cancelButton);
+
+      var applyButton = new qx.ui.form.Button("Apply");
+      applyButton.addListener("execute", function() {
+        if (selectedOption.type === "favicon") {
+          appDef.iconType = "favicon";
+          appDef.icon = "deskweb/images/askbot.svg";
+          iconWidget.changeToPresetIcon(appDef.icon);
+          iconWidget.setFaviconFromUrl(appDef.url);
+        } else {
+          appDef.iconType = "preset";
+          appDef.icon = selectedOption.icon;
+          iconWidget.changeToPresetIcon(selectedOption.icon);
+        }
+        this._saveCustomApps();
+        dialog.close();
+      }, this);
+      buttonContainer.add(applyButton);
+
+      dialog.add(buttonContainer);
+
+      this.__desktop.add(dialog);
+      dialog.center();
+      dialog.open();
     },
 
     /**

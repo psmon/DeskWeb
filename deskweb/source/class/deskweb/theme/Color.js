@@ -37,6 +37,8 @@ qx.Theme.define("deskweb.theme.Color",
     "icon-label": "#FFFFFF",
     "icon-shadow": "#000000",
     "icon-background-hover": "rgba(255, 255, 255, 0.2)",
+    "icon-background-selected": "rgba(100, 150, 220, 0.35)",
+    "icon-border-selected": "rgba(100, 150, 220, 0.7)",
 
     // Start menu colors
     "startmenu-background": "#FFFFFF",

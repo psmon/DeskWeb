@@ -86,6 +86,16 @@ qx.Theme.define("deskweb.theme.Decoration",
       }
     },
 
+    "desktop-icon-selected": {
+      style: {
+        backgroundColor: "icon-background-selected",
+        width: 1,
+        color: "icon-border-selected",
+        style: "solid",
+        radius: 3
+      }
+    },
+
     "startmenu": {
       style: {
         backgroundColor: "startmenu-background",

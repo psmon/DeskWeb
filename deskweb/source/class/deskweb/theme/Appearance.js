@@ -47,7 +47,7 @@ qx.Theme.define("deskweb.theme.Appearance",
     "desktop-icon": {
       style: function(states) {
         return {
-          decorator: states.hovered ? "desktop-icon-hover" : "desktop-icon",
+          decorator: states.selected ? "desktop-icon-selected" : (states.hovered ? "desktop-icon-hover" : "desktop-icon"),
           textColor: "icon-label",
           padding: 5,
           cursor: "pointer",
