@@ -305,9 +305,10 @@ qx.Class.define("deskweb.util.WebLLMManager",
      * Generate a chat response
      * @param {string} message - User message
      * @param {Array} history - Chat history (optional)
+     * @param {string} systemPrompt - Custom system prompt (optional)
      * @return {Promise<string>} Generated response
      */
-    chat: async function(message, history) {
+    chat: async function(message, history, systemPrompt) {
       if (!this.__engine) {
         throw new Error("No model loaded. Please load a model first.");
       }
@@ -316,7 +317,7 @@ qx.Class.define("deskweb.util.WebLLMManager",
 
       try {
         if (this.__engineType === "api") {
-          return await this.__chatWithAPI(message, history);
+          return await this.__chatWithAPI(message, history, systemPrompt);
         } else if (this.__engineType === "webllm") {
           return await this.__chatWithWebLLM(message, history);
         } else if (this.__engineType === "picollm") {
@@ -336,12 +337,13 @@ qx.Class.define("deskweb.util.WebLLMManager",
      * @param {Array} history - Chat history
      * @return {Promise<string>} Generated response
      */
-    __chatWithAPI: async function(message, history) {
+    __chatWithAPI: async function(message, history, systemPrompt) {
       console.log("[WebLLMManager] Calling API with message:", message);
 
       // Build messages array
+      const sysContent = systemPrompt || "You are a helpful assistant. Respond in Markdown format.";
       const messages = [
-        { role: "system", content: "You are a helpful assistant. Respond in Markdown format." }
+        { role: "system", content: sysContent }
       ];
 
       // Add history

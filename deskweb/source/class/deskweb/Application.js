@@ -112,7 +112,27 @@ qx.Class.define("deskweb.Application",
       // Click on desktop background to deselect all icons
       this.__desktop.addListener("click", this._deselectAllIcons, this);
 
+      // Register with AppController for AIOS
+      var appController = deskweb.util.AppController.getInstance();
+      appController.setApplication(this);
+
       console.log("[Application] DeskWeb started successfully");
+    },
+
+    /**
+     * Get the desktop instance (used by AppController)
+     * @return {qx.ui.window.Desktop}
+     */
+    getDesktop: function() {
+      return this.__desktop;
+    },
+
+    /**
+     * Get the taskbar instance (used by AppController)
+     * @return {deskweb.ui.Taskbar}
+     */
+    getTaskbar: function() {
+      return this.__taskbar;
     },
 
     /**

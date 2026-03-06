@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker ps --filter \"name=deskweb\" --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}\")",
+      "Bash(docker exec deskweb-dev qx compile 2>&1)"
+    ]
+  }
+}

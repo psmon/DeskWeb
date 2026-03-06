@@ -1944,6 +1944,53 @@ qx.Class.define("deskweb.ui.CalcWindow", {
      */
     getTutorialManager: function() {
       return this.__tutorialManager;
+    },
+
+    /**
+     * Set a cell value by reference string (e.g. "A1")
+     * Used by AppController for AIOS mode
+     * @param {string} cellRef - Cell reference like "A1", "B2"
+     * @param {string|number} value - Value or formula to set
+     */
+    setCellValue: function(cellRef, value) {
+      if (!this.__engine || !cellRef) return;
+
+      var match = cellRef.match(/^([A-Z]+)(\d+)$/i);
+      if (!match) return;
+
+      var colStr = match[1].toUpperCase();
+      var row = parseInt(match[2]) - 1;
+      var col = 0;
+      for (var i = 0; i < colStr.length; i++) {
+        col = col * 26 + (colStr.charCodeAt(i) - 64);
+      }
+      col -= 1;
+
+      this.__engine.setCell(row, col, value);
+      this._renderGrid();
+    },
+
+    /**
+     * Get a cell value by reference string (e.g. "A1")
+     * Used by AppController for AIOS mode
+     * @param {string} cellRef - Cell reference like "A1", "B2"
+     * @return {*} Cell value
+     */
+    getCellValue: function(cellRef) {
+      if (!this.__engine || !cellRef) return null;
+
+      var match = cellRef.match(/^([A-Z]+)(\d+)$/i);
+      if (!match) return null;
+
+      var colStr = match[1].toUpperCase();
+      var row = parseInt(match[2]) - 1;
+      var col = 0;
+      for (var i = 0; i < colStr.length; i++) {
+        col = col * 26 + (colStr.charCodeAt(i) - 64);
+      }
+      col -= 1;
+
+      return this.__engine.getCellValue(row, col);
     }
   },
 

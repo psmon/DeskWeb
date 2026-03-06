@@ -32,8 +32,10 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
 
     // Initialize managers
     this.__llmManager = deskweb.util.WebLLMManager.getInstance();
+    this.__appController = deskweb.util.AppController.getInstance();
     this.__conversationHistory = [];
     this.__currentModelId = null;
+    this.__aiosMode = false;
 
     // Setup window
     this._setupWindow();
@@ -76,6 +78,9 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
     __streamingMessageContainer: null,
     __streamingMessageLabel: null,
     __currentStreamingText: null,
+    __aiosMode: false,
+    __aiosToggleButton: null,
+    __appController: null,
 
     /**
      * Setup window properties
@@ -145,8 +150,24 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
       // Spacer
       toolbar.addSpacer();
 
+      // AIOS mode toggle button
+      this.__aiosToggleButton = new qx.ui.toolbar.CheckBox("AIOS");
+      this.__aiosToggleButton.setToolTipText("AI OS Mode - Control desktop apps via AI commands");
+      this.__aiosToggleButton.addListener("changeValue", function(e) {
+        this.__aiosMode = e.getData();
+        if (this.__aiosMode) {
+          this._addSystemMessage("AIOS Mode ON - You can now control desktop apps via natural language commands.");
+          this.__statusLabel.setValue("<b>AIOS Mode</b> - Desktop control enabled");
+        } else {
+          this._addSystemMessage("AIOS Mode OFF - Normal chat mode.");
+          this.__statusLabel.setValue("Normal chat mode");
+        }
+        console.log("[ChatBotWindow] AIOS mode:", this.__aiosMode);
+      }, this);
+      toolbar.add(this.__aiosToggleButton);
+
       // Clear history button
-      this.__clearButton = new qx.ui.toolbar.Button("Clear History");
+      this.__clearButton = new qx.ui.toolbar.Button("Clear");
       this.__clearButton.addListener("execute", this._onClearHistory, this);
       toolbar.add(this.__clearButton);
 
@@ -389,11 +410,21 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
         // Initialize streaming text
         this.__currentStreamingText = "";
 
+        // Build system prompt for AIOS mode
+        const systemPrompt = this.__aiosMode
+          ? this.__appController.getSystemPrompt()
+          : null;
+
         // Generate response with streaming
-        const response = await this.__llmManager.chat(message, history);
+        const response = await this.__llmManager.chat(message, history, systemPrompt);
 
         // Finalize the streaming message
         this._finalizeStreamingMessage(response);
+
+        // If AIOS mode, parse and execute commands from the response
+        if (this.__aiosMode && response) {
+          this._executeAIOSCommands(response);
+        }
 
         // Add assistant response to conversation history
         this.__conversationHistory.push({
@@ -991,6 +1022,63 @@ qx.Class.define("deskweb.ui.ChatBotWindow",
 
         console.log("[ChatBotWindow] Conversation history cleared");
       }
+    },
+
+    /**
+     * Parse and execute AIOS commands from LLM response
+     * Commands are in format: [CMD]{"type":"...", ...}[/CMD]
+     */
+    _executeAIOSCommands: function(response) {
+      var cmdRegex = /\[CMD\]([\s\S]*?)\[\/CMD\]/g;
+      var match;
+      var commands = [];
+
+      while ((match = cmdRegex.exec(response)) !== null) {
+        try {
+          var cmd = JSON.parse(match[1].trim());
+          commands.push(cmd);
+        } catch (e) {
+          console.error("[ChatBotWindow] Failed to parse AIOS command:", match[1], e);
+        }
+      }
+
+      if (commands.length === 0) {
+        return;
+      }
+
+      console.log("[ChatBotWindow] Executing", commands.length, "AIOS command(s)");
+
+      // Execute commands sequentially with a small delay between each
+      var self = this;
+      var results = [];
+
+      var executeNext = function(index) {
+        if (index >= commands.length) {
+          // Show execution results summary
+          var resultMessages = results.map(function(r) {
+            return (r.success ? "OK" : "FAIL") + ": " + r.message;
+          });
+          self._addSystemMessage(
+            "AIOS executed " + commands.length + " command(s):\n" +
+            resultMessages.join("\n")
+          );
+          return;
+        }
+
+        var result = self.__appController.executeCommand(commands[index]);
+        results.push(result);
+        console.log("[ChatBotWindow] Command result:", JSON.stringify(result));
+
+        // Small delay between commands for UI to update
+        qx.event.Timer.once(function() {
+          executeNext(index + 1);
+        }, self, 300);
+      };
+
+      // Start executing after a brief delay
+      qx.event.Timer.once(function() {
+        executeNext(0);
+      }, this, 200);
     },
 
     /**

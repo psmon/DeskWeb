@@ -470,6 +470,21 @@ qx.Class.define("deskweb.ui.NotepadWindow", {
      */
     getContent: function() {
       return this.__textArea.getValue();
+    },
+
+    /**
+     * Get text (alias for getContent, used by AppController)
+     */
+    getText: function() {
+      return this.__textArea.getValue();
+    },
+
+    /**
+     * Set text content (used by AppController)
+     * @param {string} text
+     */
+    setText: function(text) {
+      this.__textArea.setValue(text);
     }
   },
 
