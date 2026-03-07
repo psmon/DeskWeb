@@ -90,6 +90,20 @@ qx.Class.define("deskweb.ui.AskBotWindow",
         resizable: true
       });
 
+      // For external URLs (favicon), ensure the caption bar icon scales properly
+      if (this.__iconUrl && this.__iconUrl.startsWith("http")) {
+        this.addListenerOnce("appear", function() {
+          var iconWidget = this.getChildControl("icon", true);
+          if (iconWidget) {
+            iconWidget.set({
+              width: 16,
+              height: 16,
+              scale: true
+            });
+          }
+        }, this);
+      }
+
       console.log("[AskBotWindow] Window size set to:", width, "x", height);
     },
 

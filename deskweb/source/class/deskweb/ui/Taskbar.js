@@ -191,6 +191,22 @@ qx.Class.define("deskweb.ui.Taskbar", {
       window.bind("caption", button, "label");
       window.bind("icon", button, "icon");
 
+      // Ensure taskbar icon is properly sized (especially for external favicon URLs)
+      var resizeTaskbarIcon = function() {
+        var iconWidget = button.getChildControl("icon", true);
+        if (iconWidget) {
+          iconWidget.set({
+            width: 16,
+            height: 16,
+            scale: true,
+            allowGrowX: false,
+            allowGrowY: false
+          });
+        }
+      };
+      button.addListener("appear", resizeTaskbarIcon);
+      button.addListener("changeIcon", resizeTaskbarIcon);
+
       // Toggle window visibility on button click
       button.addListener("execute", function() {
         if (window.isVisible()) {

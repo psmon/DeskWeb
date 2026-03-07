@@ -884,7 +884,20 @@ qx.Class.define("deskweb.Application",
      * Open custom app window
      */
     _openCustomApp: function(appDef) {
-      var win = new deskweb.ui.AskBotWindow(appDef.url, appDef.label, appDef.icon);
+      var iconForWindow = appDef.icon;
+
+      // For favicon type, compute the favicon URL from the app URL
+      if (!appDef.iconType || appDef.iconType === "favicon") {
+        try {
+          var urlObj = new URL(appDef.url);
+          var domain = urlObj.hostname;
+          iconForWindow = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=64";
+        } catch (err) {
+          console.warn("[Application] Invalid URL for favicon:", appDef.url);
+        }
+      }
+
+      var win = new deskweb.ui.AskBotWindow(appDef.url, appDef.label, iconForWindow);
 
       this.__desktop.add(win);
       this.__taskbar.attachWindow(win);
