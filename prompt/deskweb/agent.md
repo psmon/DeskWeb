@@ -19,6 +19,7 @@
 | **실행환경** | Docker / Node.js v18+ |
 | **저장소** | localStorage (브라우저 내장) |
 | **3D 그래픽** | Three.js (테트리스, 장기 게임) |
+| **캔버스 드로잉** | Fabric.js 5.3.1 (화이트보드) |
 | **LLM** | WebLLM (브라우저 내 AI) / 외부 API |
 | **문서 처리** | hwp.js, pako (HWP 뷰어) |
 | **마크다운** | marked.js, Mermaid |
@@ -70,7 +71,8 @@ source/class/deskweb/
 │   ├── AskBotWindow.js    # ASK BOT (iframe 앱)
 │   ├── CanvasDemoWindow.js # 캔버스 데모
 │   ├── HWPViewerWindow.js # HWP 뷰어
-│   └── CalcWindow.js      # 스프레드시트(엑셀)
+│   ├── CalcWindow.js      # 스프레드시트(엑셀)
+│   └── WhiteBoardWindow.js # 화이트보드 (Fabric.js)
 ├── game/                  # 게임 로직 분리
 │   ├── SolitaireGame.js   # 솔리테어 게임 로직
 │   ├── MinesweeperGame.js # 지뢰찾기 게임 로직
@@ -86,7 +88,9 @@ source/class/deskweb/
     ├── HwpRenderer.js         # HWP HTML 렌더링
     ├── SpreadsheetEngine.js   # 스프레드시트 엔진
     ├── FormulaParser.js       # 수식 파서
-    └── CalcTutorialManager.js # 엑셀 튜토리얼
+    ├── CalcTutorialManager.js # 엑셀 튜토리얼
+    ├── AppController.js       # AI-OS 앱 제어
+    └── WhiteBoardEngine.js    # 화이트보드 엔진 (Fabric.js)
 ```
 
 ---
@@ -214,6 +218,38 @@ source/class/deskweb/
 - 카메라 각도 조절
 - 도움말 (장기 규칙 설명)
 
+### v1.9 - 커스텀 앱 추가 및 파비콘 (20-앱추가파비콘.md)
+- 바탕화면 우클릭 → 커스텀 앱 추가 기능 개선
+- 외부 URL 앱의 favicon 자동 로드
+- 커스텀 앱 아이콘 변경 기능
+- 앱 삭제 기능 (우클릭 메뉴)
+- 커스텀 앱 localStorage 저장/복원
+
+### v2.0 - AI-OS (21-AIOS.md)
+- AppController 유틸리티 추가
+- AI가 앱을 제어하는 AI-OS 개념 도입
+- 자연어 명령으로 앱 열기/닫기
+- 키보드/마우스 이벤트 시뮬레이션
+- AI-OS 앱 자동화 기능
+
+### v2.1 - WhiteBoard (22-WhiteBoard.md)
+- WhiteBoardWindow, WhiteBoardEngine 구현
+- Fabric.js 5.3.1 기반 인터랙티브 화이트보드
+- ShapeUp Whiteboard 프로젝트에서 포팅
+- 드로잉 도구: Select, Rectangle, Circle, Line, Arrow, Text, Pan
+- 화살표 자석 연결 (앵커 스냅, 도형 이동시 자동 업데이트)
+- 그룹/언그룹 (그룹 내 텍스트 더블클릭 편집)
+- 텍스트 속성 (크기, Bold/Italic/Underline, 정렬)
+- 리스트 연속 입력 (번호/글머리 기호)
+- 줌/팬 (마우스 휠, Alt+드래그)
+- Copy/Paste/Delete 단축키
+- PNG/SVG 내보내기
+- `.board` 파일 포맷 (JSON 기반 저장/불러오기)
+- 보드 템플릿 5종 (Problem, Breadboard, Fat Marker, Risk, Pitch)
+- SVG 아이콘 라이브러리
+- StorageManager 연동 파일 저장 + 로컬 다운로드/업로드
+- FileExtensionRegistry `.board` 확장자 등록
+
 ---
 
 ## 주요 유틸리티 설명
@@ -227,7 +263,8 @@ source/class/deskweb/
 - 파일 확장자별 애플리케이션 매핑
 - `.txt`, `.md` → Notepad
 - `.hwp` → HWP Viewer
-- `.ods` → Calc
+- `.ods`, `.xlsx`, `.csv` → Calc
+- `.board` → WhiteBoard
 
 ### IconPositionManager
 - 데스크톱 아이콘 위치 저장/복원

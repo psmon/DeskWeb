@@ -56,6 +56,9 @@ qx.Class.define("deskweb.util.FileExtensionRegistry", {
       // HWP files -> HWP Viewer
       this.registerExtension("hwp", "hwpviewer", "HWP Viewer");
 
+      // Board files -> WhiteBoard
+      this.registerExtension("board", "whiteboard", "WhiteBoard");
+
       // Spreadsheet files -> Calc
       this.registerExtension("ods", "calc", "Calc");
       this.registerExtension("xlsx", "calc", "Calc");

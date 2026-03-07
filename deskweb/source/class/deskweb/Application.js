@@ -275,6 +275,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openJanggiWindow();
           }
+        },
+        {
+          id: "whiteboard",
+          label: "WhiteBoard",
+          icon: "deskweb/images/whiteboard.svg",
+          defaultLeft: 120,
+          defaultTop: 420,
+          action: function() {
+            this._openWhiteBoardWindow(null);
+          }
         }
       ];
 
@@ -393,6 +403,9 @@ qx.Class.define("deskweb.Application",
         case "janggi":
           this._openJanggiWindow();
           break;
+        case "whiteboard":
+          this._openWhiteBoardWindow(null);
+          break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
           break;
@@ -471,6 +484,10 @@ qx.Class.define("deskweb.Application",
 
         case "calc":
           this._openCalcWindow(filePath);
+          break;
+
+        case "whiteboard":
+          this._openWhiteBoardWindow(filePath);
           break;
 
         default:
@@ -627,6 +644,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened Janggi game");
+    },
+
+    /**
+     * Open WhiteBoard window
+     */
+    _openWhiteBoardWindow: function(filePath) {
+      var win = new deskweb.ui.WhiteBoardWindow(filePath);
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened WhiteBoard with file:", filePath);
     },
 
     /**

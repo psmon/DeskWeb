@@ -101,6 +101,7 @@ docker build -t deskweb:latest . --progress=plain
 
 #### 1-1 이미지 PUSH
 
+이 프로젝트의 본방 저장소로 다른이름을 사용해
 ```bash
 cd deskweb
 docker build -t deskweb:latest .
