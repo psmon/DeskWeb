@@ -2,7 +2,7 @@
 
 qooxdoo 프레임워크를 사용하여 구현한 Windows XP 스타일의 웹 데스크톱 애플리케이션입니다.
 
-DEMO : https://webos.webnori.com/
+DEMO : https://psmon.github.io/DeskWeb/
 
 ## 📸 주요 기능
 
@@ -38,32 +38,7 @@ DEMO : https://webos.webnori.com/
 
 ### 필수 요구사항
 
-- Docker & Docker Compose (권장) 또는
 - Node.js (v18 이상) + npm
-
-### 🐳 Docker로 실행 (권장)
-
-#### 개발 모드
-```bash
-# 개발 모드 실행 (소스 변경 시 재컴파일 필요)
-docker-compose --profile dev up deskweb-dev -d
-
-# 소스 변경 후 재컴파일
-docker exec deskweb-dev qx compile --target=source
-
-# 로그 확인
-docker logs deskweb-dev -f
-```
-
-브라우저에서 접속: **http://localhost:9090/deskweb/**
-
-#### 프로덕션 모드
-```bash
-# 프로덕션 빌드 및 실행
-docker-compose up deskweb-prod -d
-```
-
-브라우저에서 접속: **http://localhost:80/deskweb/**
 
 ### 💻 로컬 개발 환경
 
@@ -94,6 +69,11 @@ qx compile --target=build
 ```
 
 빌드된 파일은 `compiled/build/` 디렉토리에 생성됩니다.
+
+### 🚀 배포 (GitHub Pages)
+
+`v*` 태그를 푸시하면 GitHub Actions가 자동으로 빌드하여 GitHub Pages에 배포합니다.
+자세한 내용은 [BUILD.md](./BUILD.md)를 참고하세요.
 
 ## 📁 프로젝트 구조
 
@@ -134,9 +114,6 @@ DeskWeb/
 ├── compile.json                      # qooxdoo 컴파일러 설정
 ├── Manifest.json                     # 애플리케이션 메타데이터
 ├── package.json                      # npm 의존성
-├── Dockerfile                        # 프로덕션 Docker 이미지
-├── Dockerfile.dev                    # 개발용 Docker 이미지
-├── docker-compose.yml                # Docker Compose 설정
 └── README.md                         # 프로젝트 문서
 ```
 

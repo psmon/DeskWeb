@@ -43,7 +43,7 @@ deskweb/source/class/deskweb/
    - `_openNewAppWindow()` - 창 열기 메서드
    - `_onStartMenuItemClick()` - 시작 메뉴 연결
 4. SVG 아이콘: `source/resource/deskweb/images/`
-5. 컴파일: `docker exec deskweb-dev qx compile`
+5. 컴파일: `cd deskweb && qx compile`
 
 ### 2. 스토리지 관리
 - **StorageManager**: localStorage 기반 가상 파일 시스템
@@ -79,22 +79,22 @@ deskweb/source/class/deskweb/
 
 ## 개발/빌드 명령어
 ```bash
+# 소스 컴파일
+cd deskweb && qx compile
+
 # 개발 서버 실행
-docker-compose --profile dev up deskweb-dev -d
+qx serve --listen-port=8080
 
-# 소스 컴파일 (도커 재시작 없이)
-docker exec deskweb-dev qx compile
-
-# 로그 확인
-docker logs deskweb-dev -f
+# 프로덕션 빌드 (정적 파일 → compiled/build/)
+qx compile --target=build
 
 # 접속 URL
-# 개발: http://localhost:9090/deskweb/
-# 프로덕션: http://localhost:80/deskweb/
+# 개발: http://localhost:8080/deskweb/
+# 배포(GitHub Pages): https://psmon.github.io/DeskWeb/ (v* 태그 푸시시 자동 배포)
 ```
 
 ## 디버깅 팁
 - 개발시 로그를 꼼꼼히 작성 (`this.debug()`, `console.log`)
-- 도커 재시작 없이 `qx compile`로 즉시 반영
+- 소스 변경 후 `qx compile`로 즉시 반영
 - 브라우저 DevTools로 실시간 확인
 - 멀티 윈도우 동시 열기 테스트 필수

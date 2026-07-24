@@ -1,8 +1,9 @@
 # DeskWeb - Vibe Coding으로 만드는 나만의 WebOS
 
 qooxdoo 프레임워크 기반 Windows XP 스타일 웹 데스크톱 프로젝트입니다.
+서버가 필요 없는 **순수 정적 웹 애플리케이션**으로, GitHub Pages에서 그대로 동작합니다.
 
-**DEMO**: https://webos.webnori.com/
+**DEMO**: https://psmon.github.io/DeskWeb/
 
 ## Fork & Vibe
 
@@ -85,12 +86,21 @@ git clone https://github.com/your-id/DeskWeb.git
 cd DeskWeb/deskweb
 
 # 2. 개발 서버 실행
-npm install
-docker-compose --profile dev up -d
+npm install -g @qooxdoo/compiler
+qx compile
+qx serve --listen-port=8080
 
 # 3. 접속
-# 개발: http://localhost:9090/deskweb/
-# 프로덕션: http://localhost:80/deskweb/
+# http://localhost:8080/deskweb/
+```
+
+## 배포
+
+`v*` 태그를 푸시하면 GitHub Actions가 자동으로 빌드하여 GitHub Pages에 배포합니다.
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## 탑재 앱

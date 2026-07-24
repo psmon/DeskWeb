@@ -119,6 +119,7 @@ AI ChatBot 명령으로 DeskWeb 앱 제어:
 
 ## 빌드/테스트
 ```bash
-docker exec deskweb-dev qx compile
-# 접속: http://localhost:9090/deskweb/ (dev)
+cd deskweb && qx compile               # 소스 컴파일
+qx serve --listen-port=8080            # 개발 서버 실행
+# 접속: http://localhost:8080/deskweb/
 ```

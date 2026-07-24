@@ -26,7 +26,7 @@
 - **프레임워크**: qooxdoo v6.0.4+ (엔터프라이즈급 JavaScript 프레임워크)
 - **언어**: JavaScript (ES6+)
 - **빌드 도구**: @qooxdoo/compiler v1.0.5+
-- **배포**: Docker + nginx
+- **배포**: GitHub Pages (정적 호스팅, 태그 푸시 시 자동 배포)
 
 ### 1.2 주요 기능
 
@@ -56,7 +56,7 @@ graph TB
     A[DeskWeb 프로젝트] --> B[소스 코드<br/>source/]
     A --> C[빌드 출력<br/>compiled/]
     A --> D[설정 파일]
-    A --> E[Docker 배포]
+    A --> E[GitHub Pages 배포]
 
     B --> B1[JavaScript 클래스<br/>class/deskweb/]
     B --> B2[정적 리소스<br/>resource/]
@@ -68,9 +68,7 @@ graph TB
     D --> D1[compile.json]
     D --> D2[Manifest.json]
 
-    E --> E1[Dockerfile]
-    E --> E2[docker-compose.yml]
-    E --> E3[nginx.conf]
+    E --> E1[GitHub Actions<br/>deploy-pages.yml]
 
     style A fill:#0054E3,color:#fff
     style B fill:#5A7EDB,color:#fff
@@ -113,11 +111,7 @@ DeskWeb/
 │   ├── source/                     # 개발 빌드
 │   └── build/                      # 프로덕션 빌드
 ├── compile.json                     # qooxdoo 컴파일러 설정
-├── Manifest.json                    # 패키지 메타데이터
-├── Dockerfile                       # 프로덕션 Docker 빌드
-├── Dockerfile.dev                   # 개발 Docker 빌드
-├── docker-compose.yml               # Docker 오케스트레이션
-└── nginx.conf                       # nginx 웹서버 설정
+└── Manifest.json                    # 패키지 메타데이터
 ```
 
 ### 2.2 레이어 아키텍처
@@ -143,8 +137,8 @@ graph TB
 
     subgraph "빌드 & 배포 레이어"
         COMPILER[qooxdoo Compiler<br/>트랜스파일 & 번들링]
-        DOCKER[Docker Multi-stage<br/>빌드 최적화]
-        NGINX[nginx<br/>정적 파일 서빙]
+        ACTIONS[GitHub Actions<br/>태그 트리거 빌드]
+        PAGES[GitHub Pages<br/>정적 파일 서빙]
     end
 
     HTML --> APP
@@ -156,12 +150,12 @@ graph TB
     QX --> EVENT
 
     APP -.컴파일.-> COMPILER
-    COMPILER -.빌드.-> DOCKER
-    DOCKER -.배포.-> NGINX
+    COMPILER -.빌드.-> ACTIONS
+    ACTIONS -.배포.-> PAGES
 
     style APP fill:#0054E3,color:#fff
     style QX fill:#5A7EDB,color:#fff
-    style DOCKER fill:#245EDC,color:#fff
+    style ACTIONS fill:#245EDC,color:#fff
 ```
 
 ### 2.3 핵심 설정 파일
@@ -1434,7 +1428,7 @@ qx.Theme.define("deskweb.theme.Theme", {
 
 - **qooxdoo Framework**: v6.0.4+
 - **qooxdoo Compiler**: v1.0.5+
-- **Node.js**: 18+ (Docker 이미지 기준)
+- **Node.js**: 18+
 
 ### 6.3 빌드 프로세스
 
@@ -1448,8 +1442,8 @@ graph LR
     C1 --> D1[소스맵 포함<br/>디버깅 가능<br/>비압축]
     C2 --> D2[최적화<br/>압축<br/>난독화]
 
-    D2 --> E[Docker Build<br/>Multi-stage]
-    E --> F[nginx 컨테이너<br/>정적 파일 서빙]
+    D2 --> E[GitHub Actions<br/>태그 트리거]
+    E --> F[GitHub Pages<br/>정적 파일 서빙]
 
     style B fill:#0054E3,color:#fff
     style E fill:#245EDC,color:#fff
@@ -1473,70 +1467,33 @@ graph LR
    - 특징: 압축, 난독화, 최적화
    - 용도: 배포
 
-### 6.4 Docker 빌드 전략
+### 6.4 GitHub Pages 배포 전략
 
-#### Multi-stage Dockerfile
+배포는 GitHub Actions 워크플로우(`.github/workflows/deploy-pages.yml`)로 자동화되어 있습니다.
 
-```dockerfile
-# Stage 1: 빌드 환경
-FROM node:18-alpine AS builder
+```yaml
+# 트리거: v* 태그 푸시 또는 수동 실행
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
 
-WORKDIR /app
+# 빌드: qx compile --target=build
+# 배포: deskweb/compiled/build/ → GitHub Pages
+```
 
-# qooxdoo 컴파일러 설치
-RUN npm install -g @qooxdoo/compiler
-
-# 소스 복사
-COPY source ./source
-COPY compile.json .
-COPY Manifest.json .
-
-# 프로덕션 빌드
-RUN qx compile --target=build
-
-# Stage 2: 프로덕션 환경
-FROM nginx:alpine
-
-# 빌드 결과만 복사 (Node.js 없이)
-COPY --from=builder /app/compiled/build /usr/share/nginx/html
-
-# nginx 설정
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+```bash
+# 배포 방법 — 태그를 달면 배포된다
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 **장점**:
-- ✅ 최종 이미지 크기 최소화 (nginx + 정적 파일만)
-- ✅ 보안 향상 (빌드 도구 미포함)
-- ✅ 빠른 배포
+- ✅ 서버/컨테이너 인프라 불필요 (순수 정적 호스팅)
+- ✅ 태그 기반 버전 배포 (배포 이력 = git 태그)
+- ✅ HTTPS 기본 제공
 
-#### docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  deskweb:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:80"
-    restart: unless-stopped
-
-  deskweb-dev:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    ports:
-      - "8081:80"
-    volumes:
-      - ./source:/app/source:ro  # 소스 마운트 (읽기 전용)
-    restart: unless-stopped
-```
+서비스 URL: https://psmon.github.io/DeskWeb/
 
 ---
 
@@ -1568,17 +1525,7 @@ qx serve
 # 브라우저에서 http://localhost:8080 접속
 ```
 
-### 7.2 Docker를 이용한 개발
-
-```bash
-# 개발 컨테이너 실행
-docker-compose up deskweb-dev
-
-# 브라우저에서 http://localhost:8081 접속
-# 소스 코드 변경 시 자동 반영 (볼륨 마운트)
-```
-
-### 7.3 빌드 명령어
+### 7.2 빌드 명령어
 
 ```bash
 # 개발 빌드 (소스맵 포함)
@@ -1594,7 +1541,7 @@ qx compile --watch
 qx clean
 ```
 
-### 7.4 새 UI 컴포넌트 추가 방법
+### 7.3 새 UI 컴포넌트 추가 방법
 
 #### 예시: 메모장 애플리케이션 추가
 
@@ -1686,7 +1633,7 @@ qx clean
    # 브라우저에서 확인
    ```
 
-### 7.5 테마 커스터마이징
+### 7.4 테마 커스터마이징
 
 #### 색상 변경
 
@@ -1739,7 +1686,7 @@ appearances: {
 }
 ```
 
-### 7.6 디버깅 팁
+### 7.5 디버깅 팁
 
 #### qooxdoo 콘솔
 
@@ -1775,7 +1722,7 @@ container.setBackgroundColor("red");
 container.setDecorator("main");
 ```
 
-### 7.7 프로젝트 구조 확장 가이드
+### 7.6 프로젝트 구조 확장 가이드
 
 #### 디렉토리 구조 권장사항
 
@@ -1893,7 +1840,7 @@ source/class/deskweb/
 | `source/class/deskweb/theme/Decoration.js` | 1-90 | 장식 정의 |
 | `source/class/deskweb/theme/Appearance.js` | 1-70 | 위젯 스타일 |
 | `compile.json` | 1-30 | 빌드 설정 |
-| `Dockerfile` | 1-20 | 프로덕션 Docker 빌드 |
+| `.github/workflows/deploy-pages.yml` | 1-71 | GitHub Pages 배포 워크플로우 |
 
 ---
 
@@ -1912,8 +1859,8 @@ source/class/deskweb/
 - 테마 커스터마이징 지원
 
 ✅ **프로덕션 준비**
-- Docker 멀티 스테이지 빌드
-- nginx 최적화
+- 순수 정적 웹 애플리케이션 (서버 불필요)
+- GitHub Pages 태그 기반 자동 배포
 - 개발/프로덕션 빌드 분리
 
 ✅ **정통 Windows XP 재현**
