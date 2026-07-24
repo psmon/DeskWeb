@@ -82,6 +82,7 @@ qx.Class.define("deskweb.ui.StartMenu", {
     this._addMenuItem("HWP Viewer", "hwpviewer", "hwpviewer");
     this._addMenuItem("Calc", "calc", "calc");
     this._addMenuItem("WhiteBoard", "whiteboard", "whiteboard");
+    this._addMenuItem("DOS Games", "dosplayer", "dosplayer");
     this._addSeparator();
     this._addMenuItem("Control Panel", "preferences-system", "controlpanel");
     this._addSeparator();

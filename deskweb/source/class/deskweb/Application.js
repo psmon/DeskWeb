@@ -285,6 +285,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openWhiteBoardWindow(null);
           }
+        },
+        {
+          id: "dosplayer",
+          label: "DOS Games",
+          icon: "deskweb/images/dosplayer.svg",
+          defaultLeft: 120,
+          defaultTop: 520,
+          action: function() {
+            this._openDosPlayerWindow();
+          }
         }
       ];
 
@@ -405,6 +415,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "whiteboard":
           this._openWhiteBoardWindow(null);
+          break;
+        case "dosplayer":
+          this._openDosPlayerWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -659,6 +672,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened WhiteBoard with file:", filePath);
+    },
+
+    /**
+     * Open DOS Games emulator window
+     */
+    _openDosPlayerWindow: function() {
+      var win = new deskweb.ui.DosPlayerWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened DOS Games emulator");
     },
 
     /**
