@@ -295,6 +295,16 @@ qx.Class.define("deskweb.Application",
           action: function() {
             this._openDosPlayerWindow();
           }
+        },
+        {
+          id: "midiplayer",
+          label: "MIDI Player",
+          icon: "deskweb/images/midiplayer.svg",
+          defaultLeft: 120,
+          defaultTop: 620,
+          action: function() {
+            this._openMidiPlayerWindow();
+          }
         }
       ];
 
@@ -418,6 +428,9 @@ qx.Class.define("deskweb.Application",
           break;
         case "dosplayer":
           this._openDosPlayerWindow();
+          break;
+        case "midiplayer":
+          this._openMidiPlayerWindow();
           break;
         case "controlpanel":
           this._openWindow("Control Panel", "Control Panel settings");
@@ -687,6 +700,21 @@ qx.Class.define("deskweb.Application",
       win.open();
 
       console.log("[Application] Opened DOS Games emulator");
+    },
+
+    /**
+     * Open MIDI Player (미디 연주악단) window
+     */
+    _openMidiPlayerWindow: function() {
+      var win = new deskweb.ui.MidiPlayerWindow();
+
+      this.__desktop.add(win);
+      this.__taskbar.attachWindow(win);
+
+      win.center();
+      win.open();
+
+      console.log("[Application] Opened MIDI Player");
     },
 
     /**
