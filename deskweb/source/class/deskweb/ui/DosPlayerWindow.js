@@ -8,6 +8,7 @@
  * @ignore(Dos)
  * @ignore(URL.createObjectURL)
  * @ignore(URL.revokeObjectURL)
+ * @asset(deskweb/bundles/*)
  */
 qx.Class.define("deskweb.ui.DosPlayerWindow", {
   extend: qx.ui.window.Window,
@@ -21,7 +22,8 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
 
     /**
      * 큐레이션 게임 목록.
-     * url은 브라우저에서 CORS 허용이 확인된 번들만 등록한다.
+     * - url: CORS 허용이 확인된 외부 CDN 번들
+     * - resource: 사이트와 같은 오리진으로 서빙되는 내장 번들 (CORS 제약 없음)
      */
     GAMES: [
       {
@@ -34,11 +36,43 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
       },
       {
         id: "doom",
-        title: "DOOM (Shareware)",
+        title: "DOOM",
         year: "1993",
         genre: "FPS",
         desc: "FPS의 전설. 방향키 이동, Ctrl 발사, Space 문 열기.",
         url: "https://v8.js-dos.com/bundles/doom.jsdos"
+      },
+      {
+        id: "prince",
+        title: "Prince of Persia",
+        year: "1989",
+        genre: "액션",
+        desc: "60분 안에 공주를 구하라. 방향키 이동, Shift 잡기/조심걷기.",
+        resource: "deskweb/bundles/prince.jsdos"
+      },
+      {
+        id: "lemmings",
+        title: "Lemmings",
+        year: "1991",
+        genre: "퍼즐",
+        desc: "레밍 무리를 출구까지 인도하는 명작 퍼즐. 마우스로 조작.",
+        resource: "deskweb/bundles/lemmings.jsdos"
+      },
+      {
+        id: "warcraft",
+        title: "Warcraft: Orcs & Humans",
+        year: "1994",
+        genre: "RTS",
+        desc: "블리자드 RTS의 시조. 마우스로 유닛 선택/명령.",
+        resource: "deskweb/bundles/warcraft.jsdos"
+      },
+      {
+        id: "galaxy",
+        title: "Galaxy",
+        year: "1982",
+        genre: "슈팅",
+        desc: "갤럭시안 스타일 고전 슈팅. 방향키 이동, Space 발사.",
+        resource: "deskweb/bundles/galaxy.jsdos"
       }
     ],
 
@@ -312,6 +346,16 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
     },
 
     /**
+     * 게임의 번들 URL 결정 - 내장 리소스면 같은 오리진 URI로 변환
+     */
+    _resolveBundleUrl: function(game) {
+      if (game.resource) {
+        return qx.util.ResourceManager.getInstance().toUri(game.resource);
+      }
+      return game.url;
+    },
+
+    /**
      * 게임 시작 - js-dos 로드 후 번들 URL을 동적으로 받아 실행
      */
     _startGame: function(game) {
@@ -325,6 +369,7 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
       this.__statusLabel.show();
 
       var self = this;
+      var bundleUrl = this._resolveBundleUrl(game);
 
       deskweb.ui.DosPlayerWindow.loadJsDos().then(function() {
         // DOM 요소가 준비된 뒤 마운트
@@ -345,7 +390,7 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
 
           try {
             self.__dosProps = Dos(dosDiv, {
-              url: game.url,
+              url: bundleUrl,
               autoStart: true,
               noCloud: true,
               onEvent: function(event) {
@@ -354,7 +399,7 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
                 }
               }
             });
-            console.log("[DosPlayer] Started:", game.title, game.url);
+            console.log("[DosPlayer] Started:", game.title, bundleUrl);
           } catch (e) {
             console.error("[DosPlayer] Failed to start:", e);
             self.__statusLabel.setValue("실행 실패: " + e.message);
