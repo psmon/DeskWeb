@@ -73,6 +73,302 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
         genre: "슈팅",
         desc: "갤럭시안 스타일 고전 슈팅. 방향키 이동, Space 발사.",
         resource: "deskweb/bundles/galaxy.jsdos"
+      },
+      {
+        id: "wolf3d",
+        title: "Wolfenstein 3D",
+        year: "1992",
+        genre: "FPS",
+        desc: "FPS 장르의 원조. 나치 요새를 탈출하라.",
+        resource: "deskweb/bundles/wolf3d.jsdos"
+      },
+      {
+        id: "doom2",
+        title: "DOOM II: Hell on Earth",
+        year: "1994",
+        genre: "FPS",
+        desc: "지구를 침공한 지옥 군세와 싸우는 DOOM 후속작.",
+        resource: "deskweb/bundles/doom2.jsdos"
+      },
+      {
+        id: "duke3d",
+        title: "Duke Nukem 3D",
+        year: "1996",
+        genre: "FPS",
+        desc: "액션영화 한 편 같은 사이다 FPS. Duke의 대명사.",
+        resource: "deskweb/bundles/duke3d.jsdos"
+      },
+      {
+        id: "heretic",
+        title: "Heretic",
+        year: "1994",
+        genre: "FPS",
+        desc: "판타지 세계관의 DOOM. 마법 아이템 인벤토리 지원.",
+        resource: "deskweb/bundles/heretic.jsdos"
+      },
+      {
+        id: "keen4",
+        title: "Commander Keen 4",
+        year: "1991",
+        genre: "플랫폼",
+        desc: "id 소프트웨어의 대표 횡스크롤 플랫포머.",
+        resource: "deskweb/bundles/keen4.jsdos"
+      },
+      {
+        id: "dave",
+        title: "Dangerous Dave: Haunted Mansion",
+        year: "1991",
+        genre: "플랫폼",
+        desc: "샷건 하나로 유령 저택을 헤쳐가는 플랫포머.",
+        resource: "deskweb/bundles/dave.jsdos"
+      },
+      {
+        id: "jazz",
+        title: "Jazz Jackrabbit",
+        year: "1994",
+        genre: "플랫폼",
+        desc: "에픽게임즈의 초고속 토끼 액션 플랫포머.",
+        resource: "deskweb/bundles/jazz.jsdos"
+      },
+      {
+        id: "prehistorik2",
+        title: "Prehistorik 2",
+        year: "1993",
+        genre: "플랫폼",
+        desc: "원시인 몽둥이 액션. 국내 오락실 세대의 추억.",
+        resource: "deskweb/bundles/prehistorik2.jsdos"
+      },
+      {
+        id: "aladdin",
+        title: "Disney's Aladdin",
+        year: "1993",
+        genre: "플랫폼",
+        desc: "디즈니 애니메이션 그대로 움직이는 명작 플랫포머.",
+        resource: "deskweb/bundles/aladdin.jsdos"
+      },
+      {
+        id: "lionking",
+        title: "The Lion King",
+        year: "1994",
+        genre: "플랫폼",
+        desc: "심바의 성장기를 그린 디즈니 플랫포머.",
+        resource: "deskweb/bundles/lionking.jsdos"
+      },
+      {
+        id: "earthwormjim",
+        title: "Earthworm Jim",
+        year: "1994",
+        genre: "플랫폼",
+        desc: "우주복 입은 지렁이의 엽기 액션 플랫포머.",
+        resource: "deskweb/bundles/earthwormjim.jsdos"
+      },
+      {
+        id: "lostvikings",
+        title: "The Lost Vikings",
+        year: "1993",
+        genre: "퍼즐플랫폼",
+        desc: "바이킹 3인의 능력을 조합해 퍼즐을 푸는 블리자드 초기작.",
+        resource: "deskweb/bundles/lostvikings.jsdos"
+      },
+      {
+        id: "flashback",
+        title: "Flashback",
+        year: "1992",
+        genre: "액션어드벤처",
+        desc: "로토스코핑 애니메이션의 시네마틱 플랫포머.",
+        resource: "deskweb/bundles/flashback.jsdos"
+      },
+      {
+        id: "goldenaxe",
+        title: "Golden Axe",
+        year: "1989",
+        genre: "벨트스크롤",
+        desc: "세가의 판타지 벨트스크롤 액션.",
+        resource: "deskweb/bundles/goldenaxe.jsdos"
+      },
+      {
+        id: "mk1",
+        title: "Mortal Kombat",
+        year: "1993",
+        genre: "격투",
+        desc: "페이탈리티의 원조 대전격투.",
+        resource: "deskweb/bundles/mk1.jsdos"
+      },
+      {
+        id: "sf2",
+        title: "Street Fighter II",
+        year: "1994",
+        genre: "격투",
+        desc: "대전격투의 교과서. 류/켄과 함께.",
+        resource: "deskweb/bundles/sf2.jsdos"
+      },
+      {
+        id: "omf2097",
+        title: "One Must Fall 2097",
+        year: "1994",
+        genre: "격투",
+        desc: "로봇 대전격투의 명작. 셰어웨어 시절 인기작.",
+        resource: "deskweb/bundles/omf2097.jsdos"
+      },
+      {
+        id: "civ1",
+        title: "Civilization",
+        year: "1991",
+        genre: "턴제전략",
+        desc: "시드 마이어의 문명 1편. '한 턴만 더'의 시작.",
+        resource: "deskweb/bundles/civ1.jsdos"
+      },
+      {
+        id: "dune2",
+        title: "Dune II",
+        year: "1992",
+        genre: "RTS",
+        desc: "실시간 전략 장르의 문법을 만든 게임.",
+        resource: "deskweb/bundles/dune2.jsdos"
+      },
+      {
+        id: "simcity2000",
+        title: "SimCity 2000",
+        year: "1993",
+        genre: "시뮬레이션",
+        desc: "도시 건설 시뮬레이션의 완성형.",
+        resource: "deskweb/bundles/simcity2000.jsdos"
+      },
+      {
+        id: "xcom1",
+        title: "X-COM: UFO Defense",
+        year: "1994",
+        genre: "턴제전략",
+        desc: "외계인 침공에 맞서는 턴제 전술의 전설.",
+        resource: "deskweb/bundles/xcom1.jsdos"
+      },
+      {
+        id: "cannonfodder",
+        title: "Cannon Fodder",
+        year: "1993",
+        genre: "액션전략",
+        desc: "마우스로 분대를 지휘하는 블랙코미디 전쟁 액션.",
+        resource: "deskweb/bundles/cannonfodder.jsdos"
+      },
+      {
+        id: "battlechess",
+        title: "Battle Chess",
+        year: "1988",
+        genre: "보드",
+        desc: "말들이 실제로 싸우는 애니메이션 체스.",
+        resource: "deskweb/bundles/battlechess.jsdos"
+      },
+      {
+        id: "scorched",
+        title: "Scorched Earth",
+        year: "1991",
+        genre: "포격전략",
+        desc: "탱크 포격 대전의 원조. 웜즈의 조상님.",
+        resource: "deskweb/bundles/scorched.jsdos"
+      },
+      {
+        id: "oregontrail",
+        title: "The Oregon Trail Deluxe",
+        year: "1992",
+        genre: "시뮬레이션",
+        desc: "서부 개척 생존 시뮬레이션의 고전.",
+        resource: "deskweb/bundles/oregontrail.jsdos"
+      },
+      {
+        id: "monkeyisland",
+        title: "The Secret of Monkey Island",
+        year: "1990",
+        genre: "어드벤처",
+        desc: "루카스아츠 포인트앤클릭 어드벤처의 정점.",
+        resource: "deskweb/bundles/monkeyisland.jsdos"
+      },
+      {
+        id: "nfs",
+        title: "The Need for Speed",
+        year: "1994",
+        genre: "레이싱",
+        desc: "니드포스피드 시리즈의 1편. (용량 큼: 46MB)",
+        resource: "deskweb/bundles/nfs.jsdos"
+      },
+      {
+        id: "deathrally",
+        title: "Death Rally",
+        year: "1996",
+        genre: "레이싱",
+        desc: "무기 달린 탑뷰 레이싱. 레메디 데뷔작. (용량 큼: 41MB)",
+        resource: "deskweb/bundles/deathrally.jsdos"
+      },
+      {
+        id: "stunts",
+        title: "Stunts",
+        year: "1990",
+        genre: "레이싱",
+        desc: "루프/점프 곡예 트랙의 3D 레이싱.",
+        resource: "deskweb/bundles/stunts.jsdos"
+      },
+      {
+        id: "skyroads",
+        title: "SkyRoads",
+        year: "1993",
+        genre: "레이싱",
+        desc: "우주 활주로를 달리는 점프 액션 레이싱.",
+        resource: "deskweb/bundles/skyroads.jsdos"
+      },
+      {
+        id: "wackywheels",
+        title: "Wacky Wheels",
+        year: "1994",
+        genre: "레이싱",
+        desc: "동물 친구들의 카트 레이싱. 마리오카트 스타일.",
+        resource: "deskweb/bundles/wackywheels.jsdos"
+      },
+      {
+        id: "tyrian2000",
+        title: "Tyrian 2000",
+        year: "1999",
+        genre: "슈팅",
+        desc: "종스크롤 슈팅의 명작. 공식 프리웨어.",
+        resource: "deskweb/bundles/tyrian2000.jsdos"
+      },
+      {
+        id: "supaplex",
+        title: "Supaplex",
+        year: "1991",
+        genre: "퍼즐",
+        desc: "볼더대시 계열 두뇌 퍼즐. 111개 레벨.",
+        resource: "deskweb/bundles/supaplex.jsdos"
+      },
+      {
+        id: "bomberman",
+        title: "Dyna Blaster (Bomberman)",
+        year: "1992",
+        genre: "아케이드",
+        desc: "봄버맨의 PC판. 폭탄으로 길을 뚫어라.",
+        resource: "deskweb/bundles/bomberman.jsdos"
+      },
+      {
+        id: "arkanoid",
+        title: "Arkanoid",
+        year: "1987",
+        genre: "아케이드",
+        desc: "벽돌깨기의 대명사.",
+        resource: "deskweb/bundles/arkanoid.jsdos"
+      },
+      {
+        id: "tetris",
+        title: "Tetris Classic",
+        year: "1992",
+        genre: "퍼즐",
+        desc: "스펙트럼 홀로바이트의 정식 테트리스.",
+        resource: "deskweb/bundles/tetris.jsdos"
+      },
+      {
+        id: "epicpinball",
+        title: "Epic Pinball",
+        year: "1993",
+        genre: "핀볼",
+        desc: "에픽게임즈의 명작 핀볼.",
+        resource: "deskweb/bundles/epicpinball.jsdos"
       }
     ],
 
@@ -138,6 +434,7 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
 
   members: {
     __stack: null,
+    __gameCards: null,
     __selectView: null,
     __playerView: null,
     __playerHtml: null,
@@ -211,14 +508,45 @@ qx.Class.define("deskweb.ui.DosPlayerWindow", {
       container.add(header);
 
       var subHeader = new qx.ui.basic.Label(
-        "게임 번들은 실행 시 CDN에서 동적으로 내려받습니다. 최초 실행 시 다운로드에 잠시 시간이 걸립니다."
+        "게임 번들은 실행 시 동적으로 내려받습니다. 최초 실행 시 다운로드에 잠시 시간이 걸립니다."
       );
       subHeader.set({rich: true, wrap: true, textColor: "#666666"});
       container.add(subHeader);
 
+      // 검색 필터
+      var searchRow = new qx.ui.container.Composite(new qx.ui.layout.HBox(8));
+      var searchField = new qx.ui.form.TextField();
+      searchField.setPlaceholder("게임 이름/장르 검색... (예: FPS, 레이싱, doom)");
+      searchRow.add(searchField, {flex: 1});
+
+      var countLabel = new qx.ui.basic.Label(
+        deskweb.ui.DosPlayerWindow.GAMES.length + "개"
+      );
+      countLabel.set({alignY: "middle", textColor: "#666666"});
+      searchRow.add(countLabel);
+      container.add(searchRow);
+
       // 큐레이션 게임 카드
+      this.__gameCards = [];
       deskweb.ui.DosPlayerWindow.GAMES.forEach(function(game) {
-        container.add(this._createGameCard(game));
+        var card = this._createGameCard(game);
+        this.__gameCards.push({card: card, game: game});
+        container.add(card);
+      }, this);
+
+      // 검색어 입력 시 카드 필터링
+      searchField.addListener("input", function(e) {
+        var query = (e.getData() || "").toLowerCase().trim();
+        var visible = 0;
+        this.__gameCards.forEach(function(entry) {
+          var text = (entry.game.title + " " + entry.game.genre + " " + entry.game.year).toLowerCase();
+          var match = !query || text.indexOf(query) !== -1;
+          entry.card.setVisibility(match ? "visible" : "excluded");
+          if (match) {
+            visible++;
+          }
+        });
+        countLabel.setValue(visible + "개");
       }, this);
 
       // 구분선

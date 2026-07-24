@@ -21,6 +21,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      # LFS 대역폭 절약: 오브젝트를 캐시하고 없는 것만 받는다
+      - name: Restore LFS cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.gitattributes') }}-${{ hashFiles('deskweb/source/resource/deskweb/bundles/*') }}
+          restore-keys: |
+            lfs-
+
+      - name: Pull LFS objects
+        run: git lfs pull
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
