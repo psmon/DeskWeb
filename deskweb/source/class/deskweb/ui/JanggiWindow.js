@@ -128,7 +128,7 @@ qx.Class.define("deskweb.ui.JanggiWindow",
       analysisBtn.addListener("execute", this.__onAnalysis, this);
 
       // Fullscreen button
-      var fullscreenBtn = new qx.ui.toolbar.Button("Fullscreen", "deskweb/images/maximize.svg");
+      var fullscreenBtn = new qx.ui.toolbar.Button("Fullscreen", "icon/16/actions/view-fullscreen.png");
       fullscreenBtn.addListener("execute", this.__toggleFullscreen, this);
 
       // Settings button

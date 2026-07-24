@@ -135,7 +135,7 @@ qx.Class.define("deskweb.ui.NotepadWindow", {
       toolbar.add(new qx.ui.toolbar.Separator());
 
       // View mode toggle
-      var editBtn = new qx.ui.toolbar.Button("Edit", "icon/16/actions/document-edit.png");
+      var editBtn = new qx.ui.toolbar.Button("Edit", "icon/16/actions/insert-text.png");
       editBtn.addListener("execute", function() {
         this._setViewMode("edit");
       }, this);

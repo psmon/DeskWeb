@@ -12,6 +12,9 @@
  * This is the main application class of "deskweb"
  *
  * @asset(deskweb/*)
+ * @asset(qx/icon/Tango/16/actions/*)
+ * @asset(qx/icon/Tango/16/places/*)
+ * @asset(qx/icon/Tango/16/mimetypes/*)
  */
 qx.Class.define("deskweb.Application",
 {
