@@ -166,6 +166,14 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
 
       root.add(right, {flex: 1});
       this.add(root, {flex: 1});
+
+      // 좁은 화면(모바일)에서는 곡 목록 패널을 축소
+      this.addListener("resize", function() {
+        var b = this.getBounds();
+        if (b) {
+          left.setWidth(b.width < 600 ? 150 : 270);
+        }
+      }, this);
     },
 
     // ─────────────────────────────────── 곡 목록

@@ -116,7 +116,100 @@ qx.Class.define("deskweb.Application",
       var appController = deskweb.util.AppController.getInstance();
       appController.setApplication(this);
 
+      // Mobile (iOS-style) responsive mode
+      this.__mobileMode = false;
+      this.__mobileHome = null;
+      this.__desktop.addListener("windowAdded", this._onWindowAdded, this);
+      doc.addListener("resize", this._updateLayoutMode, this);
+      this._updateLayoutMode();
+
       console.log("[Application] DeskWeb started successfully");
+    },
+
+    /**
+     * 모바일 뷰포트 여부 (폭 700px 이하)
+     */
+    _isMobileViewport: function() {
+      return window.innerWidth <= 700;
+    },
+
+    /**
+     * 뷰포트 크기에 따라 데스크톱(XP) ↔ 모바일(iOS 홈) 모드 전환
+     */
+    _updateLayoutMode: function() {
+      var mobile = this._isMobileViewport();
+      if (mobile === this.__mobileMode) {
+        return;
+      }
+      this.__mobileMode = mobile;
+
+      if (mobile) {
+        // 모바일: 작업표시줄/바탕화면 아이콘 숨기고 iOS 홈 표시
+        this.__taskbar.exclude();
+        this.__desktopIcons.forEach(function(icon) {
+          icon.exclude();
+        });
+
+        if (!this.__mobileHome) {
+          var apps = (this.__appDefs || []).map(function(d) {
+            return {id: d.id, label: d.label, icon: d.icon};
+          });
+          this.__mobileHome = new deskweb.ui.MobileHome(
+            apps, ["my-computer", "chatbot", "dosplayer", "midiplayer"]
+          );
+          this.__mobileHome.addListener("launch", function(e) {
+            this._launchAppById(e.getData());
+          }, this);
+          this.__desktop.add(this.__mobileHome, {left: 0, top: 0, right: 0, bottom: 0});
+        } else {
+          this.__mobileHome.show();
+        }
+
+        // 이미 열린 창은 전체화면으로 전환
+        this.__desktop.getWindows().forEach(function(win) {
+          if (win.getVisibility() === "visible") {
+            win.maximize();
+          }
+        });
+        console.log("[Application] Switched to mobile (iOS) mode");
+      } else {
+        // 데스크톱: XP 화면 복원
+        this.__taskbar.show();
+        this.__desktopIcons.forEach(function(icon) {
+          icon.show();
+        });
+        if (this.__mobileHome) {
+          this.__mobileHome.exclude();
+        }
+        console.log("[Application] Switched to desktop (XP) mode");
+      }
+    },
+
+    /**
+     * 모바일 모드에서 새로 열리는 모든 창을 전체화면으로
+     */
+    _onWindowAdded: function(e) {
+      if (!this.__mobileMode) {
+        return;
+      }
+      var win = e.getData();
+      win.addListenerOnce("appear", function() {
+        win.maximize();
+      });
+    },
+
+    /**
+     * 앱 id로 실행 (모바일 홈 아이콘 탭)
+     */
+    _launchAppById: function(id) {
+      var defs = this.__appDefs || [];
+      for (var i = 0; i < defs.length; i++) {
+        if (defs[i].id === id) {
+          defs[i].action.call(this);
+          return;
+        }
+      }
+      console.warn("[Application] Unknown app id:", id);
     },
 
     /**
@@ -307,6 +400,9 @@ qx.Class.define("deskweb.Application",
           }
         }
       ];
+
+      // 모바일 홈 등에서 재사용할 수 있게 앱 정의 보관
+      this.__appDefs = iconDefinitions;
 
       // Create each icon
       iconDefinitions.forEach(function(iconDef) {
