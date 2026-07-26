@@ -3,7 +3,10 @@
  *
  * 무대(악단 뷰)가 메인 연출이며 스킨과 독립적으로 유지된다.
  * 재생 컨트롤은 카툰풍 빈티지 주크박스(jukebox.svg)로 스킨을 입혔다.
- * 곡 소스는 (1) 번들 MIDI, (2) 로컬 폴더/파일 등록 두 가지를 지원한다.
+ * 곡 소스는 (1) 번들 MIDI, (2) 로컬 폴더/파일 등록, (3) BitMidi 온라인을 지원한다.
+ * BitMidi 온라인은 다운로드 없이 CORS 스트리밍으로 재생하며,
+ *   - 간편재생: 내장 카탈로그(deskweb/midi/bitmidi.json, 사전 카테고라이징)를 장르별 브라우즈
+ *   - 실시간 검색: bitmidi.com 검색 API로 전체 라이브러리를 즉시 검색해 재생
  *
  * MIDI 파일 재생 시 곡에 등장하는 악기(GM 프로그램)에 매칭되는 연주자 스프라이트가
  * 무대에 등장해 실제 노트에 맞춰 연주 애니메이션을 한다.
@@ -33,6 +36,16 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
 
     LIB_URL: "https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0",
     SOUND_FONT: "https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus",
+
+    /** BitMidi 온라인 소스 (다운로드 없이 CORS 스트리밍 재생, audio/midi) */
+    BITMIDI_SEARCH_API: "https://bitmidi.com/api/midi/search",
+    BITMIDI_BASE: "https://bitmidi.com",
+    /** 내장 BitMidi 간편재생 카탈로그 (사전 카테고라이징) */
+    BITMIDI_CATALOG: "deskweb/midi/bitmidi.json",
+    /** BitMidi 모드 장르(간편재생 카테고리) */
+    BITMIDI_GENRES: ["전체", "인기", "게임", "영화", "애니", "팝록", "클래식", "재즈", "캐럴"],
+    /** 내 라이브러리 모드 장르 */
+    LOCAL_GENRES: ["전체", "게임", "클래식", "바로크", "전통음악", "캐럴"],
 
     /** 스프라이트 시트 공통 스펙 */
     FRAME_SIZE: 192,
@@ -134,6 +147,10 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     this.__currentSong = null;
     this.__playing = false;
     this.__shuffle = false;
+    this.__sourceMode = "local";        // "local" | "bitmidi"
+    this.__bitmidiCatalog = null;       // 내장 카탈로그 (지연 로드)
+    this.__searchResults = null;        // BitMidi 실시간 검색 결과 (있으면 목록 대체)
+    this.__searchSeq = 0;               // 검색 디바운스/경합 방지 토큰
 
     this._createUI();
     this._loadSongList();
@@ -153,7 +170,14 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     __songList: null,
     __searchField: null,
     __genreBox: null,
+    __sourceBox: null,
     __statusLabel: null,
+    __sourceMode: null,
+    __bitmidiCatalog: null,
+    __searchResults: null,
+    __searchSeq: null,
+    __searchTimer: null,
+    __suppressRefresh: null,
     __stageHtml: null,
     __playerHost: null,
     __playerEl: null,
@@ -192,16 +216,25 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       var left = new qx.ui.container.Composite(new qx.ui.layout.VBox(6));
       left.set({width: 270, padding: 8, backgroundColor: "#ECE9D8"});
 
+      // 소스 선택: 내 라이브러리(번들+로컬) / BitMidi 온라인
+      this.__sourceBox = new qx.ui.form.SelectBox();
+      var srcLib = new qx.ui.form.ListItem("📀 내 라이브러리");
+      srcLib.setModel("local");
+      var srcNet = new qx.ui.form.ListItem("🌐 BitMidi 온라인");
+      srcNet.setModel("bitmidi");
+      this.__sourceBox.add(srcLib);
+      this.__sourceBox.add(srcNet);
+      this.__sourceBox.addListener("changeSelection", this._onSourceChange, this);
+      left.add(this.__sourceBox);
+
       this.__searchField = new qx.ui.form.TextField();
       this.__searchField.setPlaceholder("곡 검색...");
-      this.__searchField.addListener("input", this._refreshSongList, this);
+      this.__searchField.addListener("input", this._onSearchInput, this);
       left.add(this.__searchField);
 
       this.__genreBox = new qx.ui.form.SelectBox();
-      ["전체", "게임", "클래식", "바로크", "전통음악", "캐럴"].forEach(function(g) {
-        this.__genreBox.add(new qx.ui.form.ListItem(g));
-      }, this);
-      this.__genreBox.addListener("changeSelection", this._refreshSongList, this);
+      this._setGenres(deskweb.ui.MidiPlayerWindow.LOCAL_GENRES);
+      this.__genreBox.addListener("changeSelection", this._onGenreChange, this);
       left.add(this.__genreBox);
 
       this.__songList = new qx.ui.form.List();
@@ -283,13 +316,25 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       });
     },
 
+    _selectedGenre: function() {
+      var genreSel = this.__genreBox.getSelection()[0];
+      return genreSel ? genreSel.getLabel() : "전체";
+    },
+
     _refreshSongList: function() {
+      if (this.__sourceMode === "bitmidi") {
+        this._refreshBitmidiList();
+      } else {
+        this._refreshLocalList();
+      }
+    },
+
+    _refreshLocalList: function() {
       if (!this.__songs) {
         return;
       }
       var query = (this.__searchField.getValue() || "").toLowerCase().trim();
-      var genreSel = this.__genreBox.getSelection()[0];
-      var genre = genreSel ? genreSel.getLabel() : "전체";
+      var genre = this._selectedGenre();
 
       this.__songList.removeAll();
       this.__songs.forEach(function(song) {
@@ -304,6 +349,170 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         item.setModel(song);
         this.__songList.add(item);
       }, this);
+    },
+
+    /**
+     * BitMidi 목록 렌더:
+     *  - 실시간 검색 결과(__searchResults)가 있으면 그것을 표시
+     *  - 없으면 내장 카탈로그를 선택 장르로 필터한 "간편재생" 목록 표시
+     */
+    _refreshBitmidiList: function() {
+      this.__songList.removeAll();
+
+      if (this.__searchResults) {
+        this.__searchResults.forEach(function(song) {
+          var item = new qx.ui.form.ListItem("🔎 " + song.title);
+          item.setModel(song);
+          this.__songList.add(item);
+        }, this);
+        return;
+      }
+
+      var catalog = this.__bitmidiCatalog;
+      if (!catalog) {
+        return; // 로딩 중
+      }
+      var genre = this._selectedGenre();
+      catalog.forEach(function(song) {
+        if (genre !== "전체" && song.genre !== genre) {
+          return;
+        }
+        var item = new qx.ui.form.ListItem("🌐 [" + song.genre + "] " + song.title);
+        item.setModel(song);
+        this.__songList.add(item);
+      }, this);
+    },
+
+    // ─────────────────────────────────── 소스 전환 (내 라이브러리 / BitMidi)
+
+    _setGenres: function(genres) {
+      this.__suppressRefresh = true;
+      this.__genreBox.removeAll();
+      genres.forEach(function(g) {
+        this.__genreBox.add(new qx.ui.form.ListItem(g));
+      }, this);
+      this.__suppressRefresh = false;
+    },
+
+    _onGenreChange: function() {
+      if (this.__suppressRefresh) {
+        return;
+      }
+      // 장르를 바꾸면 실시간 검색 결과를 비우고 간편재생(카테고리 브라우즈)으로 복귀
+      if (this.__sourceMode === "bitmidi" && this.__searchResults) {
+        this.__searchResults = null;
+        this.__searchField.setValue("");
+      }
+      this._refreshSongList();
+    },
+
+    _onSourceChange: function() {
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      var sel = this.__sourceBox.getSelection()[0];
+      var mode = sel ? sel.getModel() : "local";
+      this.__sourceMode = mode;
+      this.__searchResults = null;
+      this.__searchField.setValue("");
+
+      if (mode === "bitmidi") {
+        this.__searchField.setPlaceholder("BitMidi 전체 검색 (엔터/입력)...");
+        this._setGenres(clazz.BITMIDI_GENRES);
+        this._loadBitmidiCatalog();
+      } else {
+        this.__searchField.setPlaceholder("곡 검색...");
+        this._setGenres(this.__localGenreAdded
+          ? clazz.LOCAL_GENRES.concat(["내 폴더"]) : clazz.LOCAL_GENRES);
+        this._refreshSongList();
+      }
+    },
+
+    /** BitMidi 간편재생 카탈로그 지연 로드 */
+    _loadBitmidiCatalog: function() {
+      var self = this;
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      if (this.__bitmidiCatalog) {
+        this._refreshSongList();
+        return;
+      }
+      this.__statusLabel.setValue("BitMidi 카탈로그 로딩중...");
+      var uri = qx.util.ResourceManager.getInstance().toUri(clazz.BITMIDI_CATALOG);
+      fetch(uri).then(function(r) {
+        return r.json();
+      }).then(function(list) {
+        list.forEach(function(s) { s.source = "bitmidi"; });
+        self.__bitmidiCatalog = list;
+        if (self.__sourceMode === "bitmidi") {
+          self._refreshSongList();
+          self.__statusLabel.setValue("BitMidi " + list.length +
+            "곡 간편재생 준비됨. 검색창으로 전체 검색도 가능합니다.");
+        }
+      }).catch(function(e) {
+        console.error("[MidiPlayer] bitmidi catalog load failed:", e);
+        self.__statusLabel.setValue("BitMidi 카탈로그 로드 실패");
+      });
+    },
+
+    // ─────────────────────────────────── 검색 (로컬 필터 / BitMidi 실시간)
+
+    _onSearchInput: function() {
+      if (this.__sourceMode === "bitmidi") {
+        this._scheduleBitmidiSearch();
+      } else {
+        this._refreshSongList();
+      }
+    },
+
+    _scheduleBitmidiSearch: function() {
+      var self = this;
+      if (this.__searchTimer) {
+        window.clearTimeout(this.__searchTimer);
+      }
+      var query = (this.__searchField.getValue() || "").trim();
+      if (!query) {
+        // 검색어 비우면 간편재생(카테고리)로 복귀
+        this.__searchResults = null;
+        this._refreshSongList();
+        return;
+      }
+      this.__searchTimer = window.setTimeout(function() {
+        self._bitmidiSearch(query);
+      }, 400);
+    },
+
+    /** BitMidi 전체 라이브러리 실시간 검색 (API, 다운로드 없이 URL 재생) */
+    _bitmidiSearch: function(query) {
+      var self = this;
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      var seq = ++this.__searchSeq;
+      this.__statusLabel.setValue("BitMidi 검색중: " + query + " ...");
+      var url = clazz.BITMIDI_SEARCH_API + "?q=" + encodeURIComponent(query) + "&page=0";
+      fetch(url).then(function(r) {
+        return r.json();
+      }).then(function(j) {
+        if (seq !== self.__searchSeq || self.__sourceMode !== "bitmidi") {
+          return; // 더 최신 검색이 진행됨 → 폐기
+        }
+        var rows = (j.result && j.result.results) || [];
+        self.__searchResults = rows.filter(function(r) {
+          return r.downloadUrl;
+        }).map(function(r) {
+          return {
+            title: r.name.replace(/\.mid$/i, ""),
+            genre: "검색",
+            url: clazz.BITMIDI_BASE + r.downloadUrl,
+            source: "bitmidi"
+          };
+        });
+        self._refreshSongList();
+        self.__statusLabel.setValue("검색 결과 " + self.__searchResults.length +
+          "곡 (\"" + query + "\") — 더블클릭하면 연주");
+      }).catch(function(e) {
+        if (seq !== self.__searchSeq) {
+          return;
+        }
+        console.error("[MidiPlayer] bitmidi search failed:", e);
+        self.__statusLabel.setValue("BitMidi 검색 실패 (네트워크 확인)");
+      });
     },
 
     // ─────────────────────────────────── 로컬 폴더/파일 로드
@@ -368,6 +577,10 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       });
 
       if (added > 0) {
+        // BitMidi 모드였다면 내 라이브러리로 전환해 추가된 파일을 노출
+        if (this.__sourceMode !== "local") {
+          this.__sourceBox.setSelection([this.__sourceBox.getSelectables()[0]]);
+        }
         this._ensureLocalGenre();
         this._refreshSongList();
         this.__statusLabel.setValue("<b>" + added + "개</b> MIDI 등록됨" + (folderName ? " (" + folderName + ")" : ""));
@@ -381,7 +594,10 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         return;
       }
       this.__localGenreAdded = true;
-      this.__genreBox.add(new qx.ui.form.ListItem("내 폴더"));
+      // 로컬 모드일 때만 장르박스에 즉시 반영 (BitMidi 모드면 복귀 시 반영)
+      if (this.__sourceMode === "local") {
+        this.__genreBox.add(new qx.ui.form.ListItem("내 폴더"));
+      }
     },
 
     // ─────────────────────────────────── GM 프로그램 → 연주자 매핑
@@ -710,7 +926,8 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         return;
       }
       this.__titleEl.textContent = song.title;
-      this.__genreEl.textContent = (song.localFile ? "💾 " : "") + "[" + song.genre + "]";
+      var srcIcon = song.localFile ? "💾 " : (song.url ? "🌐 " : "");
+      this.__genreEl.textContent = srcIcon + "[" + song.genre + "]";
       // 긴 제목이면 마퀴 스크롤
       var wrap = this.__titleEl.parentNode;
       this.__titleEl.classList.remove("scroll");
@@ -767,6 +984,9 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       if (song.localFile) {
         this.__objUrl = URL.createObjectURL(song.localFile);
         uri = this.__objUrl;
+      } else if (song.url) {
+        // BitMidi 원격 URL — 다운로드 없이 CORS 스트리밍 재생
+        uri = song.url;
       } else {
         uri = qx.util.ResourceManager.getInstance().toUri(song.file);
       }
@@ -818,12 +1038,19 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     },
 
     _currentIndex: function(items) {
+      var cur = this.__currentSong;
+      if (!cur) {
+        return -1;
+      }
       for (var i = 0; i < items.length; i++) {
-        if (this.__currentSong && items[i].getModel() === this.__currentSong) {
+        var m = items[i].getModel();
+        if (m === cur) {
           return i;
         }
-        if (this.__currentSong && items[i].getModel().file &&
-            items[i].getModel().file === this.__currentSong.file) {
+        if (m.file && cur.file && m.file === cur.file) {
+          return i;
+        }
+        if (m.url && cur.url && m.url === cur.url) {
           return i;
         }
       }
@@ -881,6 +1108,10 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       if (this.__eqTimer) {
         window.clearInterval(this.__eqTimer);
         this.__eqTimer = null;
+      }
+      if (this.__searchTimer) {
+        window.clearTimeout(this.__searchTimer);
+        this.__searchTimer = null;
       }
       if (this.__objUrl) {
         URL.revokeObjectURL(this.__objUrl);
