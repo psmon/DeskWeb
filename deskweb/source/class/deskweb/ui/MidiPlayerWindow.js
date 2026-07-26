@@ -635,7 +635,7 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     },
 
     /** BitMidi 전체 라이브러리 실시간 검색 (API, 다운로드 없이 URL 재생) */
-    _bitmidiSearch: function(query) {
+    _bitmidiSearch: function(query, autoPlay) {
       var self = this;
       var clazz = deskweb.ui.MidiPlayerWindow;
       var seq = ++this.__searchSeq;
@@ -660,7 +660,15 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         });
         self._refreshSongList();
         self.__statusLabel.setValue("검색 결과 " + self.__searchResults.length +
-          "곡 (\"" + query + "\") — 더블클릭하면 연주");
+          "곡 (\"" + query + "\")" + (autoPlay ? " — 첫 곡 재생" : " — 더블클릭하면 연주"));
+        // AI 자동재생: 첫 결과 재생
+        if (autoPlay && self.__searchResults.length) {
+          var first = self.__songList.getChildren()[0];
+          if (first) {
+            self.__songList.setSelection([first]);
+            self._playSong(first.getModel());
+          }
+        }
       }).catch(function(e) {
         if (seq !== self.__searchSeq) {
           return;
@@ -1352,6 +1360,137 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         console.error("[MidiPlayer] real play failed:", e);
         self.__statusLabel.setValue("Real 엔진 재생 실패: " + (e && e.message || e));
       });
+    },
+
+    // ─────────────────────────────────── AI/외부 제어 API (챗봇 AIOS)
+
+    /** 엔진 전환 (simple|real) */
+    aiSetEngine: function(mode) {
+      if (mode !== "simple" && mode !== "real") {
+        return;
+      }
+      var items = this.__engineBox.getSelectables();
+      var target = (mode === "real") ? items[1] : items[0];
+      if (target) {
+        this.__engineBox.setSelection([target]);
+      }
+    },
+
+    /** 소스 전환 (local|bitmidi) */
+    aiSetSource: function(mode) {
+      var items = this.__sourceBox.getSelectables();
+      var target = (mode === "bitmidi") ? items[1] : items[0];
+      if (target) {
+        this.__sourceBox.setSelection([target]);
+      }
+    },
+
+    /** 장르박스에서 라벨로 선택 */
+    _selectGenre: function(label) {
+      if (!label) {
+        return false;
+      }
+      var items = this.__genreBox.getSelectables();
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].getLabel() === label) {
+          this.__genreBox.setSelection([items[i]]);
+          return true;
+        }
+      }
+      return false;
+    },
+
+    /**
+     * 자연어 재생 진입점 (챗봇 AIOS).
+     * opts: {source:"local"|"bitmidi", genre, query, title, engine:"simple"|"real"}
+     *  - bitmidi + query → 온라인 검색 후 첫 곡 재생
+     *  - 그 외 → 소스/장르/검색 반영 후 목록 첫(또는 제목 매칭) 곡 재생
+     */
+    aiPlay: function(opts) {
+      var self = this;
+      opts = opts || {};
+      if (opts.engine) {
+        this.aiSetEngine(opts.engine);
+      }
+      var source = (opts.source === "bitmidi") ? "bitmidi" : "local";
+      this.aiSetSource(source);
+
+      // 온라인 검색 재생 (카탈로그 대기 불필요)
+      if (source === "bitmidi" && opts.query) {
+        this.__searchField.setValue(opts.query);
+        this._bitmidiSearch(opts.query, true);
+        return;
+      }
+
+      if (opts.genre) {
+        this._selectGenre(opts.genre);
+      }
+      if (source === "local" && (opts.title || opts.query)) {
+        this.__searchField.setValue(opts.title || opts.query);
+      } else if (source === "bitmidi") {
+        this.__searchResults = null;
+        this.__searchField.setValue("");
+      }
+
+      // 목록이 준비되면(카탈로그/곡목록 비동기 로드 대기) 첫/제목매칭 곡 재생
+      var attempt = function(tries) {
+        self._refreshSongList();
+        var items = self.__songList.getChildren();
+        if (!items.length) {
+          if (tries < 40) {
+            window.setTimeout(function() { attempt(tries + 1); }, 150);
+          } else {
+            self.__statusLabel.setValue("재생할 곡을 찾지 못했습니다.");
+          }
+          return;
+        }
+        var pick = items[0];
+        if (opts.title) {
+          var q = opts.title.toLowerCase();
+          for (var i = 0; i < items.length; i++) {
+            var m = items[i].getModel();
+            if (m && m.title && m.title.toLowerCase().indexOf(q) >= 0) {
+              pick = items[i];
+              break;
+            }
+          }
+        }
+        self.__songList.setSelection([pick]);
+        self._playSong(pick.getModel());
+      };
+      attempt(0);
+    },
+
+    /** 재생 제어: play/pause/stop/next/prev/shuffle/score_on/score_off */
+    aiControl: function(action) {
+      switch (action) {
+        case "play":
+        case "resume":
+          if (!this.__playing) { this._togglePlay(); }
+          return { success: true, message: "재생" };
+        case "pause":
+        case "stop":
+          if (this.__playing) { this._togglePlay(); }
+          return { success: true, message: "정지" };
+        case "next":
+          this._playNext();
+          return { success: true, message: "다음 곡" };
+        case "prev":
+        case "previous":
+          this._playPrev();
+          return { success: true, message: "이전 곡" };
+        case "shuffle":
+          this._toggleShuffle();
+          return { success: true, message: "셔플 토글" };
+        case "score_on":
+          if (this.__scoreBtn) { this.__scoreBtn.setValue(true); }
+          return { success: true, message: "악보보기 켬" };
+        case "score_off":
+          if (this.__scoreBtn) { this.__scoreBtn.setValue(false); }
+          return { success: true, message: "악보보기 끔" };
+        default:
+          return { success: false, message: "알 수 없는 동작: " + action };
+      }
     },
 
     // ─────────────────────────────────── 악보보기 (스코어 플레이어)

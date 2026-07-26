@@ -90,6 +90,14 @@ qx.Class.define("deskweb.util.WebLLMManager",
     getAvailableModels: function() {
       return [
         {
+          id: "chrome-gemini-nano",
+          name: "🌟 Chrome 내장 (Gemini Nano)",
+          description: "온디바이스 · 크롬 전용 · 무설치(첫 사용 시 자동 다운로드)",
+          size: "내장",
+          context: "on-device",
+          isChrome: true
+        },
+        {
           id: "openai/gpt-oss-20b",
           name: "openai/gpt-oss-20b",
           description: "Cloud API model, no download required",
@@ -165,6 +173,13 @@ qx.Class.define("deskweb.util.WebLLMManager",
         // Check if this is an API model
         const models = this.getAvailableModels();
         const modelConfig = models.find(m => m.id === modelId);
+
+        // Chrome 내장 온디바이스 LLM (Gemini Nano / Prompt API) - 1순위
+        if (modelConfig && modelConfig.isChrome) {
+          console.log("[WebLLMManager] Loading Chrome built-in model...");
+          await this.__loadChromeModel(modelId);
+          return;
+        }
 
         if (modelConfig && modelConfig.isAPI) {
           console.log("[WebLLMManager] Loading API model...");
@@ -280,6 +295,83 @@ qx.Class.define("deskweb.util.WebLLMManager",
     },
 
     /**
+     * Check Chrome built-in AI (Prompt API / Gemini Nano) availability.
+     * @return {Promise<string>} "available" | "downloadable" | "downloading" | "unavailable"
+     */
+    checkChromeAI: async function() {
+      const LM = window.LanguageModel || (window.ai && window.ai.languageModel);
+      if (!LM || typeof LM.availability !== "function") {
+        return "unavailable";
+      }
+      try {
+        return await LM.availability();
+      } catch (e) {
+        console.warn("[WebLLMManager] Chrome AI availability check failed:", e);
+        return "unavailable";
+      }
+    },
+
+    /**
+     * Load Chrome built-in on-device model (Gemini Nano). Triggers/tracks the
+     * one-time model download when needed. Works only in Chrome (desktop).
+     * @param {string} modelId - The model ID
+     * @return {Promise<void>}
+     */
+    __loadChromeModel: async function(modelId) {
+      const LM = window.LanguageModel || (window.ai && window.ai.languageModel);
+      if (!LM || typeof LM.availability !== "function") {
+        this.__isLoading = false;
+        const err = new Error(
+          "크롬 내장 AI를 사용할 수 없습니다. 최신 Chrome 데스크톱(Prompt API 지원) 에서만 동작합니다. " +
+          "다른 모델을 선택하거나 Chrome을 사용하세요."
+        );
+        this.fireDataEvent("loadError", { error: err });
+        throw err;
+      }
+
+      const status = await LM.availability();
+      console.log("[WebLLMManager] Chrome AI availability:", status);
+
+      if (status === "unavailable") {
+        this.__isLoading = false;
+        const err = new Error(
+          "이 기기/브라우저에서는 크롬 내장 AI(Gemini Nano)를 사용할 수 없습니다."
+        );
+        this.fireDataEvent("loadError", { error: err });
+        throw err;
+      }
+
+      // downloadable/downloading 이면 create() 시 다운로드가 시작되고 진행률이 온다
+      if (status !== "available") {
+        this.fireDataEvent("loadProgress", {
+          progress: 0,
+          text: "Gemini Nano 다운로드 준비중..."
+        });
+      }
+
+      const self = this;
+      const primer = await LM.create({
+        monitor(m) {
+          m.addEventListener("downloadprogress", function(e) {
+            self.fireDataEvent("loadProgress", {
+              progress: e.loaded || 0,
+              text: "Gemini Nano 다운로드: " + Math.round((e.loaded || 0) * 100) + "%"
+            });
+          });
+        }
+      });
+      // 다운로드 트리거용 세션은 즉시 정리 (실제 대화는 매 호출 시 세션 생성)
+      try { if (primer.destroy) { primer.destroy(); } } catch (e) { /* ignore */ }
+
+      this.__engine = "chrome";
+      this.__engineType = "chrome";
+      this.__isLoading = false;
+
+      console.log("[WebLLMManager] Chrome built-in model ready");
+      this.fireDataEvent("modelLoaded", { model: modelId, engineType: "chrome" });
+    },
+
+    /**
      * Load API model (no actual loading needed)
      * @param {string} modelId - The model ID
      * @return {Promise<void>}
@@ -316,7 +408,9 @@ qx.Class.define("deskweb.util.WebLLMManager",
       console.log("[WebLLMManager] Generating chat response for:", message);
 
       try {
-        if (this.__engineType === "api") {
+        if (this.__engineType === "chrome") {
+          return await this.__chatWithChrome(message, history, systemPrompt);
+        } else if (this.__engineType === "api") {
           return await this.__chatWithAPI(message, history, systemPrompt);
         } else if (this.__engineType === "webllm") {
           return await this.__chatWithWebLLM(message, history);
@@ -329,6 +423,56 @@ qx.Class.define("deskweb.util.WebLLMManager",
         console.error("[WebLLMManager] Chat generation failed:", error);
         throw error;
       }
+    },
+
+    /**
+     * Chat using Chrome built-in Gemini Nano (Prompt API). Streams delta chunks.
+     * @param {string} message - User message
+     * @param {Array} history - Chat history
+     * @param {string} systemPrompt - Optional system prompt
+     * @return {Promise<string>} Generated response
+     */
+    __chatWithChrome: async function(message, history, systemPrompt) {
+      const LM = window.LanguageModel || (window.ai && window.ai.languageModel);
+      if (!LM) {
+        throw new Error("Chrome 내장 AI를 사용할 수 없습니다.");
+      }
+
+      const sysContent = systemPrompt ||
+        "You are a helpful assistant. Respond in Markdown format.";
+      const initialPrompts = [{ role: "system", content: sysContent }];
+      if (history && history.length > 0) {
+        history.forEach(msg => {
+          if (msg && msg.role && msg.content && msg.content !== message) {
+            initialPrompts.push({ role: msg.role, content: msg.content });
+          }
+        });
+      }
+
+      let session;
+      try {
+        session = await LM.create({ initialPrompts: initialPrompts });
+      } catch (e) {
+        // 히스토리 포맷 제약 등으로 실패하면 시스템 프롬프트만으로 재시도
+        console.warn("[WebLLMManager] Chrome session with history failed, retrying:", e);
+        session = await LM.create({
+          initialPrompts: [{ role: "system", content: sysContent }]
+        });
+      }
+
+      let fullResponse = "";
+      try {
+        const stream = session.promptStreaming(message);
+        for await (const chunk of stream) {
+          fullResponse += chunk; // Prompt API는 델타(증분) 청크를 준다
+          this.fireDataEvent("chatResponse", { text: fullResponse, isDone: false });
+        }
+      } finally {
+        try { if (session.destroy) { session.destroy(); } } catch (e) { /* ignore */ }
+      }
+
+      this.fireDataEvent("chatResponse", { text: fullResponse, isDone: true });
+      return fullResponse;
     },
 
     /**

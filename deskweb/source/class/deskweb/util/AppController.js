@@ -68,7 +68,8 @@ qx.Class.define("deskweb.util.AppController",
         { id: "janggi", name: "Janggi", description: "Korean chess (3D)" },
         { id: "canvas-demo", name: "Canvas Demo", description: "Canvas graphics demo" },
         { id: "hwpviewer", name: "HWP Viewer", description: "HWP document viewer" },
-        { id: "askbot", name: "ASK BOT", description: "Web app viewer (iframe)" }
+        { id: "askbot", name: "ASK BOT", description: "Web app viewer (iframe)" },
+        { id: "midiplayer", name: "MIDI Player", description: "MIDI 음악 플레이어 (악단 비주얼라이저 + 악보보기). 로컬 카테고리(게임/클래식/바로크/전통음악/캐럴) 재생, BitMidi 온라인 검색/카테고리(인기/게임/영화/애니/팝록/클래식/재즈/캐럴) 재생, 일반/Real 악기 엔진" }
       ];
     },
 
@@ -140,6 +141,15 @@ qx.Class.define("deskweb.util.AppController",
             break;
           case "janggi_get_state":
             result = this._janggiGetState();
+            break;
+          case "midi_play":
+            result = this._midiPlay(command);
+            break;
+          case "midi_control":
+            result = this._midiControl(command);
+            break;
+          case "midi_set_engine":
+            result = this._midiSetEngine(command);
             break;
           default:
             result = { success: false, message: "Unknown command type: " + command.type };
@@ -216,6 +226,11 @@ qx.Class.define("deskweb.util.AppController",
         case "askbot":
           win = new deskweb.ui.AskBotWindow();
           break;
+        case "midiplayer":
+        case "midi":
+        case "midi-player":
+          win = new deskweb.ui.MidiPlayerWindow();
+          break;
         default:
           return { success: false, message: "Unknown app: " + appId };
       }
@@ -268,7 +283,10 @@ qx.Class.define("deskweb.util.AppController",
         "canvasdemo": deskweb.ui.CanvasDemoWindow,
         "hwpviewer": deskweb.ui.HWPViewerWindow,
         "askbot": deskweb.ui.AskBotWindow,
-        "chatbot": deskweb.ui.ChatBotWindow
+        "chatbot": deskweb.ui.ChatBotWindow,
+        "midiplayer": deskweb.ui.MidiPlayerWindow,
+        "midi": deskweb.ui.MidiPlayerWindow,
+        "midi-player": deskweb.ui.MidiPlayerWindow
       };
       return classMap[appId] || null;
     },
@@ -639,6 +657,68 @@ qx.Class.define("deskweb.util.AppController",
     },
 
     /**
+     * MIDI Player가 열려있으면 반환, 없으면 열어서 반환
+     */
+    _openOrGetMidi: function() {
+      var win = this._findWindow("midiplayer");
+      if (!win) {
+        this._openApp("midiplayer");
+        win = this._findWindow("midiplayer");
+      }
+      return win;
+    },
+
+    /**
+     * 자연어 MIDI 재생: 카테고리/검색/제목/소스/엔진 지정 재생
+     */
+    _midiPlay: function(cmd) {
+      var win = this._openOrGetMidi();
+      if (!win || !win.aiPlay) {
+        return { success: false, message: "MIDI Player를 열 수 없습니다" };
+      }
+      win.aiPlay({
+        source: cmd.source,
+        genre: cmd.genre,
+        query: cmd.query,
+        title: cmd.title,
+        engine: cmd.engine
+      });
+      var what = cmd.query ? ("검색 '" + cmd.query + "'")
+        : cmd.title ? ("'" + cmd.title + "'")
+        : cmd.genre ? ("[" + cmd.genre + "] 카테고리")
+        : "재생목록";
+      var src = cmd.source === "bitmidi" ? "BitMidi 온라인" : "내 라이브러리";
+      return {
+        success: true,
+        message: "MIDI Player 재생: " + what + " (" + src +
+          (cmd.engine ? (", " + cmd.engine + " 엔진") : "") + ")"
+      };
+    },
+
+    /**
+     * MIDI 재생 제어: play/pause/stop/next/prev/shuffle/score_on/score_off
+     */
+    _midiControl: function(cmd) {
+      var win = this._findWindow("midiplayer");
+      if (!win || !win.aiControl) {
+        return { success: false, message: "MIDI Player가 열려있지 않습니다" };
+      }
+      return win.aiControl(cmd.action);
+    },
+
+    /**
+     * MIDI 엔진 전환: simple(일반) / real(Real 악기 HQ)
+     */
+    _midiSetEngine: function(cmd) {
+      var win = this._openOrGetMidi();
+      if (!win || !win.aiSetEngine) {
+        return { success: false, message: "MIDI Player를 열 수 없습니다" };
+      }
+      win.aiSetEngine(cmd.engine);
+      return { success: true, message: "MIDI 엔진: " + cmd.engine };
+    },
+
+    /**
      * Parse cell reference like "A1" to {row, col}
      */
     _parseCellRef: function(ref) {
@@ -703,7 +783,15 @@ qx.Class.define("deskweb.util.AppController",
         '- Key press (games): [CMD]{"type":"key_press","app":"tetris","key":"ArrowLeft"}[/CMD]\n' +
         '- Click (games): [CMD]{"type":"click","app":"minesweeper","x":50,"y":50}[/CMD]\n' +
         '- Get app state: [CMD]{"type":"get_app_state","app":"notepad"}[/CMD]\n' +
-        '- Get janggi state: [CMD]{"type":"janggi_get_state"}[/CMD]\n\n' +
+        '- Get janggi state: [CMD]{"type":"janggi_get_state"}[/CMD]\n' +
+        "\n## MIDI Player (음악 재생) Commands:\n" +
+        '- 로컬 카테고리 재생: [CMD]{"type":"midi_play","source":"local","genre":"게임"}[/CMD]  (genres: 게임,클래식,바로크,전통음악,캐럴)\n' +
+        '- 제목으로 재생(로컬): [CMD]{"type":"midi_play","source":"local","title":"Zelda"}[/CMD]\n' +
+        '- 온라인 검색 재생(BitMidi): [CMD]{"type":"midi_play","source":"bitmidi","query":"final fantasy"}[/CMD]\n' +
+        '- 온라인 카테고리 재생: [CMD]{"type":"midi_play","source":"bitmidi","genre":"영화"}[/CMD]  (genres: 인기,게임,영화,애니,팝록,클래식,재즈,캐럴)\n' +
+        '- Real 악기(HQ) 엔진으로 재생: "engine":"real" 추가 → [CMD]{"type":"midi_play","source":"bitmidi","query":"queen","engine":"real"}[/CMD]\n' +
+        '- 재생 제어: [CMD]{"type":"midi_control","action":"next"}[/CMD]  (actions: play,pause,stop,next,prev,shuffle,score_on,score_off)\n' +
+        '- 엔진 전환: [CMD]{"type":"midi_set_engine","engine":"real"}[/CMD]  (engine: simple 또는 real)\n\n' +
         "## Rules:\n" +
         "1. Always respond in natural language AND include [CMD] blocks for actions\n" +
         "2. You can include multiple [CMD] blocks in one response for sequential actions\n" +
@@ -711,7 +799,11 @@ qx.Class.define("deskweb.util.AppController",
         "4. For calc operations, open calc first if not open, then set cells\n" +
         "5. For notepad, open it first if not open, then set text\n" +
         "6. Respond in the same language as the user (Korean/English)\n" +
-        "7. Be concise but helpful\n";
+        "7. Be concise but helpful\n" +
+        "8. 음악/연주 요청(\"...재생해줘\", \"...틀어줘\", \"음악\", \"노래\")은 midi_play 사용. " +
+        "로컬 번들 장르(게임/클래식/바로크/전통음악/캐럴)는 source=\"local\", " +
+        "그 외(영화/애니/팝/특정 아티스트/특정 곡명)는 source=\"bitmidi\"로 query 검색. " +
+        "\"실제 악기\"/\"고음질\" 요청 시 engine=\"real\" 추가. MIDI Player는 자동으로 열림.\n";
     }
   }
 });
