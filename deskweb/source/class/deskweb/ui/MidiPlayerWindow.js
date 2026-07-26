@@ -23,6 +23,9 @@
  * @ignore(requestAnimationFrame)
  * @ignore(cancelAnimationFrame)
  * @ignore(performance.now)
+ * @ignore(AudioContext)
+ * @ignore(webkitAudioContext)
+ * @ignore(Event)
  * @asset(deskweb/midi/*)
  * @asset(deskweb/band/*)
  * @asset(deskweb/images/jukebox.svg)
@@ -32,10 +35,56 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
 
   statics: {
     __libPromise: null,
+    __spessaPromise: null,
     __cssInjected: false,
 
     LIB_URL: "https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0",
     SOUND_FONT: "https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus",
+
+    /**
+     * Real 악기 재생 엔진 = SpessaSynth (AudioWorklet SF2/SF3 신디사이저, Apache-2.0)
+     * 압축 사운드폰트(SF3) GeneralUserGS(8MB, 관대한 라이선스)로 실제 악기 렌더링.
+     * ESM/worklet은 jsdelivr, 사운드폰트는 jsdelivr-gh(+ GH Pages 폴백) 전부 CORS 개방.
+     */
+    SPESSA_ESM: "https://cdn.jsdelivr.net/npm/spessasynth_lib@4.3.11/+esm",
+    SPESSA_WORKLET: "https://cdn.jsdelivr.net/npm/spessasynth_lib@4.3.11/dist/spessasynth_processor.min.js",
+    SPESSA_SOUNDFONT: "https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@master/soundfonts/GeneralUserGS.sf3",
+    SPESSA_SOUNDFONT_FALLBACK: "https://spessasus.github.io/SpessaSynth/soundfonts/GeneralUserGS.sf3",
+
+    /** SpessaSynth ESM 모듈 동적 로드 (전역 1회, dynamic import) */
+    loadSpessaModule: function() {
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      if (clazz.__spessaPromise) {
+        return clazz.__spessaPromise;
+      }
+      clazz.__spessaPromise = new Promise(function(resolve, reject) {
+        if (window.__spessaLib) {
+          resolve(window.__spessaLib);
+          return;
+        }
+        var evOk = "deskweb-spessa-ready";
+        var evErr = "deskweb-spessa-error";
+        window.addEventListener(evOk, function h() {
+          window.removeEventListener(evOk, h);
+          resolve(window.__spessaLib);
+        });
+        window.addEventListener(evErr, function h() {
+          window.removeEventListener(evErr, h);
+          clazz.__spessaPromise = null;
+          reject(window.__spessaErr || new Error("SpessaSynth 로드 실패"));
+        });
+        // dynamic import()는 qooxdoo 트랜스파일을 피하려고 인라인 스크립트로 실행
+        var s = document.createElement("script");
+        s.textContent =
+          'import(' + JSON.stringify(clazz.SPESSA_ESM) + ')' +
+          '.then(function(m){window.__spessaLib=m;' +
+          'window.dispatchEvent(new Event("' + evOk + '"));})' +
+          '.catch(function(e){window.__spessaErr=e;' +
+          'window.dispatchEvent(new Event("' + evErr + '"));});';
+        document.head.appendChild(s);
+      });
+      return clazz.__spessaPromise;
+    },
 
     /** BitMidi 온라인 소스 (다운로드 없이 CORS 스트리밍 재생, audio/midi) */
     BITMIDI_SEARCH_API: "https://bitmidi.com/api/midi/search",
@@ -151,6 +200,8 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     this.__bitmidiCatalog = null;       // 내장 카탈로그 (지연 로드)
     this.__searchResults = null;        // BitMidi 실시간 검색 결과 (있으면 목록 대체)
     this.__searchSeq = 0;               // 검색 디바운스/경합 방지 토큰
+    this.__engineMode = "simple";       // "simple"(일반 MIDI) | "real"(Real 악기 HQ)
+    this.__chProg = new Array(16);      // Real 모드: 채널→프로그램/드럼 추적 (비주얼라이저)
 
     this._createUI();
     this._loadSongList();
@@ -178,6 +229,14 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     __searchSeq: null,
     __searchTimer: null,
     __suppressRefresh: null,
+    // Real 악기 엔진 (SpessaSynth)
+    __engineMode: null,
+    __engineBox: null,
+    __spReady: null,          // 초기화 Promise (지연 1회)
+    __spCtx: null,            // AudioContext
+    __spSynth: null,          // WorkletSynthesizer
+    __spSeq: null,            // Sequencer
+    __chProg: null,           // 채널별 프로그램/드럼
     __stageHtml: null,
     __playerHost: null,
     __playerEl: null,
@@ -226,6 +285,18 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       this.__sourceBox.add(srcNet);
       this.__sourceBox.addListener("changeSelection", this._onSourceChange, this);
       left.add(this.__sourceBox);
+
+      // 재생 엔진: 일반 MIDI(기본) / Real 악기(HQ, SpessaSynth 사운드폰트)
+      this.__engineBox = new qx.ui.form.SelectBox();
+      var engSimple = new qx.ui.form.ListItem("🎹 일반 MIDI 재생");
+      engSimple.setModel("simple");
+      var engReal = new qx.ui.form.ListItem("🎻 Real 악기 재생 (HQ)");
+      engReal.setModel("real");
+      this.__engineBox.add(engSimple);
+      this.__engineBox.add(engReal);
+      this.__engineBox.setToolTipText("Real 악기: 8MB 고음질 사운드폰트로 실제 악기 음색 렌더링 (첫 재생 시 로딩)");
+      this.__engineBox.addListener("changeSelection", this._onEngineChange, this);
+      left.add(this.__engineBox);
 
       this.__searchField = new qx.ui.form.TextField();
       this.__searchField.setPlaceholder("곡 검색...");
@@ -957,40 +1028,66 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
 
     // ─────────────────────────────────── 재생 제어
 
-    _playSong: function(song) {
-      if (!song) {
-        return;
-      }
-      if (!this.__playerEl) {
-        // 엔진 준비 전 - 예약
-        this.__pendingSong = song;
-        this.__currentSong = song;
-        this._updateDisplay(song);
-        this.__statusLabel.setValue("주크박스 준비중... (" + song.title + ")");
-        return;
-      }
-
-      this.__currentSong = song;
-      this._resetBand();
-      this._updateDisplay(song);
-      this.__statusLabel.setValue("로딩중: " + song.title);
-
+    /** 곡 → 재생 URI (localFile은 objectURL, BitMidi는 원격 URL, 번들은 리소스) */
+    _songUri: function(song) {
       if (this.__objUrl) {
         URL.revokeObjectURL(this.__objUrl);
         this.__objUrl = null;
       }
-
-      var uri;
       if (song.localFile) {
         this.__objUrl = URL.createObjectURL(song.localFile);
-        uri = this.__objUrl;
-      } else if (song.url) {
-        // BitMidi 원격 URL — 다운로드 없이 CORS 스트리밍 재생
-        uri = song.url;
-      } else {
-        uri = qx.util.ResourceManager.getInstance().toUri(song.file);
+        return this.__objUrl;
+      }
+      if (song.url) {
+        return song.url; // BitMidi 원격 (CORS 스트리밍)
+      }
+      return qx.util.ResourceManager.getInstance().toUri(song.file);
+    },
+
+    /** 곡 → MIDI ArrayBuffer (Real 엔진용) */
+    _songArrayBuffer: function(song) {
+      if (song.localFile) {
+        return song.localFile.arrayBuffer();
+      }
+      var uri = song.url ? song.url
+        : qx.util.ResourceManager.getInstance().toUri(song.file);
+      return fetch(uri).then(function(r) {
+        if (!r.ok) {
+          throw new Error("MIDI 로드 실패 " + r.status);
+        }
+        return r.arrayBuffer();
+      });
+    },
+
+    _pickAndPlay: function() {
+      var pick = this.__songList.getSelection()[0] || this.__songList.getChildren()[0];
+      if (pick) {
+        this.__songList.setSelection([pick]);
+        this._playSong(pick.getModel());
+      }
+    },
+
+    _playSong: function(song) {
+      if (!song) {
+        return;
+      }
+      this.__currentSong = song;
+      this._resetBand();
+      this._updateDisplay(song);
+
+      if (this.__engineMode === "real") {
+        this._playSongReal(song);
+        return;
       }
 
+      // 일반 MIDI (html-midi-player / magenta)
+      if (!this.__playerEl) {
+        this.__pendingSong = song; // 엔진 준비 전 - 예약
+        this.__statusLabel.setValue("주크박스 준비중... (" + song.title + ")");
+        return;
+      }
+      this.__statusLabel.setValue("로딩중: " + song.title);
+      var uri = this._songUri(song);
       try {
         this.__playerEl.stop();
       } catch (e) {
@@ -1001,13 +1098,25 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     },
 
     _togglePlay: function() {
-      if (!this.__playerEl) {
-        // 엔진 준비 전이면 선택곡을 예약 재생
-        var pick = this.__songList.getSelection()[0] || this.__songList.getChildren()[0];
-        if (pick) {
-          this.__songList.setSelection([pick]);
-          this._playSong(pick.getModel());
+      if (this.__engineMode === "real") {
+        if (this.__spSeq && this.__currentSong) {
+          if (this.__playing && !this.__spSeq.paused) {
+            this.__spSeq.pause();
+            this._setPlaying(false);
+          } else {
+            this.__spCtx.resume();
+            this.__spSeq.play();
+            this._setPlaying(true);
+          }
+        } else {
+          this._pickAndPlay();
         }
+        return;
+      }
+
+      // 일반 MIDI
+      if (!this.__playerEl) {
+        this._pickAndPlay(); // 엔진 준비 전이면 선택곡을 예약 재생
         return;
       }
       if (this.__playing) {
@@ -1017,12 +1126,143 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       if (this.__currentSong) {
         this.__playerEl.start();
       } else {
-        var sel = this.__songList.getSelection()[0] || this.__songList.getChildren()[0];
-        if (sel) {
-          this.__songList.setSelection([sel]);
-          this._playSong(sel.getModel());
-        }
+        this._pickAndPlay();
       }
+    },
+
+    // ─────────────────────────────────── Real 악기 엔진 (SpessaSynth)
+
+    _onEngineChange: function() {
+      var self = this;
+      var sel = this.__engineBox.getSelection()[0];
+      var mode = sel ? sel.getModel() : "simple";
+      if (mode === this.__engineMode) {
+        return;
+      }
+      this._stopAllEngines();
+      this.__engineMode = mode;
+      if (mode === "real") {
+        this.__statusLabel.setValue("Real 악기 모드 — 고음질 사운드폰트(8MB) 불러오는 중...");
+        // 미리 초기화(첫 재생 지연 감소)
+        this._ensureSpessa().then(function() {
+          if (self.__engineMode === "real") {
+            self.__statusLabel.setValue("Real 악기 준비됨 🎻 — 곡을 재생하세요.");
+          }
+        }, function(e) {
+          self.__statusLabel.setValue("Real 엔진 로드 실패: " + (e && e.message || e));
+        });
+      } else {
+        this.__statusLabel.setValue("일반 MIDI 재생 모드 🎹");
+      }
+    },
+
+    _stopAllEngines: function() {
+      try {
+        if (this.__playerEl) {
+          this.__playerEl.stop();
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (this.__spSeq && !this.__spSeq.paused) {
+          this.__spSeq.pause();
+        }
+      } catch (e) { /* ignore */ }
+      this._setPlaying(false);
+    },
+
+    _resetChProg: function() {
+      for (var i = 0; i < 16; i++) {
+        this.__chProg[i] = { program: 0, isDrum: i === 9 };
+      }
+    },
+
+    /** SpessaSynth 지연 초기화 (모듈+worklet+신디+사운드폰트+시퀀서, 1회) */
+    _ensureSpessa: function() {
+      var self = this;
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      if (this.__spReady) {
+        return this.__spReady;
+      }
+      this.__spReady = clazz.loadSpessaModule().then(function(S) {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        var ctx = new Ctx();
+        return ctx.audioWorklet.addModule(clazz.SPESSA_WORKLET).then(function() {
+          var synth = new S.WorkletSynthesizer(ctx);
+          synth.connect(ctx.destination);
+          return self._fetchSoundfont().then(function(sf) {
+            return synth.soundBankManager.addSoundBank(sf, "main");
+          }).then(function() {
+            return synth.isReady;
+          }).then(function() {
+            var seq = new S.Sequencer(synth);
+            seq.loopCount = 0;
+
+            // 비주얼라이저 연동: programChange로 채널 악기 추적, noteOn으로 연주자 소환
+            synth.eventHandler.addEvent("programChange", "deskweb-viz", function(e) {
+              self.__chProg[e.channel] = { program: e.program, isDrum: !!e.isDrum };
+            });
+            synth.eventHandler.addEvent("noteOn", "deskweb-viz", function(e) {
+              var cp = self.__chProg[e.channel] || {};
+              self._onNote({
+                pitch: e.midiNote,
+                velocity: e.velocity,
+                program: cp.program || 0,
+                isDrum: cp.isDrum || (e.channel === 9)
+              });
+            });
+            // 곡 종료 → 다음 곡
+            seq.eventHandler.addEvent("songEnded", "deskweb-adv", function() {
+              if (self.__engineMode === "real") {
+                self._setPlaying(false);
+                self._playNext();
+              }
+            });
+
+            self.__spCtx = ctx;
+            self.__spSynth = synth;
+            self.__spSeq = seq;
+            console.log("[MidiPlayer] SpessaSynth (Real 악기) 준비 완료");
+          });
+        });
+      });
+      // 실패 시 다음 시도에서 재초기화 허용
+      this.__spReady["catch"](function() { self.__spReady = null; });
+      return this.__spReady;
+    },
+
+    /** 사운드폰트 로드 (jsdelivr-gh → 실패 시 GH Pages 폴백) */
+    _fetchSoundfont: function() {
+      var clazz = deskweb.ui.MidiPlayerWindow;
+      return fetch(clazz.SPESSA_SOUNDFONT).then(function(r) {
+        if (!r.ok) {
+          throw new Error("soundfont http " + r.status);
+        }
+        return r.arrayBuffer();
+      })["catch"](function() {
+        return fetch(clazz.SPESSA_SOUNDFONT_FALLBACK).then(function(r) {
+          return r.arrayBuffer();
+        });
+      });
+    },
+
+    _playSongReal: function(song) {
+      var self = this;
+      this.__statusLabel.setValue("Real 엔진 준비중: " + song.title);
+      this._ensureSpessa().then(function() {
+        return self._songArrayBuffer(song);
+      }).then(function(buf) {
+        if (self.__currentSong !== song || self.__engineMode !== "real") {
+          return; // 그 사이 곡/모드 변경됨
+        }
+        self._resetChProg();
+        self.__spCtx.resume();
+        self.__spSeq.loadNewSongList([{ binary: buf, fileName: song.title }]);
+        self.__spSeq.play();
+        self._setPlaying(true);
+      })["catch"](function(e) {
+        console.error("[MidiPlayer] real play failed:", e);
+        self.__statusLabel.setValue("Real 엔진 재생 실패: " + (e && e.message || e));
+      });
     },
 
     _toggleShuffle: function() {
@@ -1116,6 +1356,24 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       if (this.__objUrl) {
         URL.revokeObjectURL(this.__objUrl);
         this.__objUrl = null;
+      }
+      // Real 악기 엔진 정리
+      if (this.__spSeq) {
+        try {
+          this.__spSeq.pause();
+        } catch (e) {
+          // ignore
+        }
+        this.__spSeq = null;
+      }
+      this.__spSynth = null;
+      if (this.__spCtx) {
+        try {
+          this.__spCtx.close();
+        } catch (e) {
+          // ignore
+        }
+        this.__spCtx = null;
       }
     }
   }
