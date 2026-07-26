@@ -8,6 +8,11 @@
  *   - 간편재생: 내장 카탈로그(deskweb/midi/bitmidi.json, 사전 카테고라이징)를 장르별 브라우즈
  *   - 실시간 검색: bitmidi.com 검색 API로 전체 라이브러리를 즉시 검색해 재생
  *
+ * 악보보기(스코어 플레이어): 우측 패널에 html-midi-player의 <midi-visualizer>
+ * (스태프 악보/피아노롤)를 붙여, 재생 위치(초)에 맞춰 현재 음을 강조하고 악보를
+ * 자동 스크롤한다. 두 엔진(일반/Real) 공용으로 rAF 루프가 시퀀서/플레이어의
+ * currentTime을 읽어 noteSequence의 활성 음표를 redraw(scrollIntoView)한다.
+ *
  * MIDI 파일 재생 시 곡에 등장하는 악기(GM 프로그램)에 매칭되는 연주자 스프라이트가
  * 무대에 등장해 실제 노트에 맞춰 연주 애니메이션을 한다.
  * 스프라이트가 없는 악기는 유사 악기 연주자로 매핑한다.
@@ -169,7 +174,11 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         ".mp-btn:active{transform:translateY(1px);}",
         ".mp-btn.mp-play{width:52px;height:52px;font-size:22px;",
         "background:radial-gradient(circle at 50% 30%,#ffe6a0,#ffbe45 55%,#d98a1e);color:#5b3608;}",
-        ".mp-btn.mp-on{background:radial-gradient(circle at 50% 30%,#bfe9c0,#4ad06a 60%,#2a9a48);color:#0c3a1a;}"
+        ".mp-btn.mp-on{background:radial-gradient(circle at 50% 30%,#bfe9c0,#4ad06a 60%,#2a9a48);color:#0c3a1a;}",
+        /* 악보 비주얼라이저 (스태프/피아노롤 스크롤) */
+        ".mp-score-vis{display:block;width:100%;min-height:100%;}",
+        ".mp-score-vis svg{max-width:none;height:auto;}",
+        ".mp-score-vis .active{fill:#e8451e;}"
       ].join("");
       var style = document.createElement("style");
       style.type = "text/css";
@@ -205,6 +214,8 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     this.__searchSeq = 0;               // 검색 디바운스/경합 방지 토큰
     this.__engineMode = "simple";       // "simple"(일반 MIDI) | "real"(Real 악기 HQ)
     this.__chProg = new Array(16);      // Real 모드: 채널→프로그램/드럼 추적 (비주얼라이저)
+    this.__scoreOn = false;             // 악보보기 표시 여부
+    this.__scoreVisType = "staff";      // 악보 표현 방식
 
     this._createUI();
     this._loadSongList();
@@ -240,6 +251,20 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     __spSynth: null,          // WorkletSynthesizer
     __spSeq: null,            // Sequencer
     __chProg: null,           // 채널별 프로그램/드럼
+    // 악보보기 (스코어 플레이어)
+    __scoreOn: null,
+    __scoreBtn: null,
+    __scorePanel: null,
+    __scoreHtml: null,
+    __scoreVis: null,         // <midi-visualizer>
+    __scoreTypeBox: null,
+    __scoreVisType: null,     // "staff" | "piano-roll"
+    __scoreNotes: null,       // startTime 정렬 노트 배열
+    __scoreCursor: null,      // 현재 강조 노트 인덱스
+    __scoreRaf: null,         // 커서 rAF
+    __currentUri: null,       // 현재 곡 재생/악보 공용 URI (objURL 1개)
+    __scoreForceRedraw: null,
+    __scoreLoadSeq: null,     // 악보 로드 경합 방지 토큰
     __stageHtml: null,
     __playerHost: null,
     __playerEl: null,
@@ -342,6 +367,12 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       loadRow.add(fileBtn, {flex: 1});
       left.add(loadRow);
 
+      // 악보보기 토글 (연주에 맞춰 악보가 흐르는 학습용 스코어 패널)
+      this.__scoreBtn = new qx.ui.form.ToggleButton("🎼 악보보기");
+      this.__scoreBtn.setToolTipText("연주에 맞춰 악보가 지나가는 학습용 스코어 패널을 우측에 표시합니다");
+      this.__scoreBtn.addListener("changeValue", this._onScoreToggle, this);
+      left.add(this.__scoreBtn);
+
       this.__statusLabel = new qx.ui.basic.Label("곡을 선택하세요 (더블클릭 = 연주)");
       this.__statusLabel.set({rich: true, wrap: true, textColor: "#555555", font: qx.bom.Font.fromString("11px Tahoma")});
       left.add(this.__statusLabel);
@@ -362,6 +393,43 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       right.add(this.__playerHost);
 
       root.add(right, {flex: 1});
+
+      // ── 우측: 악보 패널 (악보보기 토글 시 표시)
+      this.__scorePanel = new qx.ui.container.Composite(new qx.ui.layout.VBox(4));
+      this.__scorePanel.set({width: 340, padding: 6, backgroundColor: "#FBFBF3"});
+      this.__scorePanel.exclude(); // 기본 숨김
+
+      var scoreHead = new qx.ui.container.Composite(new qx.ui.layout.HBox(6));
+      var scoreTitle = new qx.ui.basic.Label("🎼 악보 (연주 따라가기)");
+      scoreTitle.set({
+        font: qx.bom.Font.fromString("bold 12px Tahoma"),
+        textColor: "#333333", alignY: "middle"
+      });
+      this.__scoreTypeBox = new qx.ui.form.SelectBox();
+      this.__scoreTypeBox.set({width: 110});
+      var stStaff = new qx.ui.form.ListItem("스태프 악보");
+      stStaff.setModel("staff");
+      var stRoll = new qx.ui.form.ListItem("피아노롤");
+      stRoll.setModel("piano-roll");
+      this.__scoreTypeBox.add(stStaff);
+      this.__scoreTypeBox.add(stRoll);
+      this.__scoreTypeBox.addListener("changeSelection", this._onScoreTypeChange, this);
+      scoreHead.add(scoreTitle, {flex: 1});
+      scoreHead.add(this.__scoreTypeBox);
+      this.__scorePanel.add(scoreHead);
+
+      this.__scoreHtml = new qx.ui.embed.Html();
+      this.__scoreHtml.set({backgroundColor: "#FFFFFF", overflowX: "auto", overflowY: "auto"});
+      this.__scorePanel.add(this.__scoreHtml, {flex: 1});
+
+      var scoreHint = new qx.ui.basic.Label(
+        "곡을 재생하면 현재 음이 강조되며 악보가 스크롤됩니다.");
+      scoreHint.set({rich: true, wrap: true, textColor: "#888888",
+        font: qx.bom.Font.fromString("10px Tahoma")});
+      this.__scorePanel.add(scoreHint);
+
+      root.add(this.__scorePanel);
+
       this.add(root, {flex: 1});
 
       // 좁은 화면(모바일)에서는 선곡 패널을 축소
@@ -1078,6 +1146,12 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       this._resetBand();
       this._updateDisplay(song);
 
+      // 오디오/악보 공용 URI (objURL은 곡당 1개만 생성)
+      this.__currentUri = this._songUri(song);
+      if (this.__scoreOn) {
+        this._loadScore();
+      }
+
       if (this.__engineMode === "real") {
         this._playSongReal(song);
         return;
@@ -1090,14 +1164,13 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         return;
       }
       this.__statusLabel.setValue("로딩중: " + song.title);
-      var uri = this._songUri(song);
       try {
         this.__playerEl.stop();
       } catch (e) {
         // ignore
       }
       // src 설정 → 'load' 이벤트에서 start()
-      this.__playerEl.src = uri;
+      this.__playerEl.src = this.__currentUri;
     },
 
     _togglePlay: function() {
@@ -1268,6 +1341,165 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       });
     },
 
+    // ─────────────────────────────────── 악보보기 (스코어 플레이어)
+
+    _onScoreToggle: function() {
+      var self = this;
+      var on = this.__scoreBtn.getValue();
+      this.__scoreOn = on;
+      if (on) {
+        this.__scorePanel.setVisibility("visible");
+        this._ensureScoreVis(function() {
+          self._loadScore();
+          self._startScoreTick();
+        });
+        this.__statusLabel.setValue("악보보기 켜짐 🎼 — 재생하면 악보가 연주를 따라갑니다.");
+      } else {
+        this._stopScoreTick();
+        if (this.__scoreVis && this.__scoreVis.clearActiveNotes) {
+          try { this.__scoreVis.clearActiveNotes(); } catch (e) { /* ignore */ }
+        }
+        this.__scorePanel.exclude();
+      }
+    },
+
+    _onScoreTypeChange: function() {
+      var sel = this.__scoreTypeBox.getSelection()[0];
+      this.__scoreVisType = sel ? sel.getModel() : "staff";
+      if (this.__scoreVis) {
+        try {
+          this.__scoreVis.type = this.__scoreVisType;
+        } catch (e) { /* ignore */ }
+        this._loadScore();
+      }
+    },
+
+    /** <midi-visualizer> 요소 지연 생성 (html-midi-player 로드 필요) */
+    _ensureScoreVis: function(cb) {
+      var self = this;
+      if (this.__scoreVis) {
+        if (cb) { cb(); }
+        return;
+      }
+      var host = this.__scoreHtml.getContentElement().getDomElement();
+      if (!host) {
+        // 패널이 아직 표시 전 → 나타나면 재시도
+        this.__scoreHtml.addListenerOnce("appear", function() {
+          self._ensureScoreVis(cb);
+        });
+        return;
+      }
+      deskweb.ui.MidiPlayerWindow.injectCss();
+      deskweb.ui.MidiPlayerWindow.loadLib().then(function() {
+        var vis = document.createElement("midi-visualizer");
+        vis.setAttribute("type", self.__scoreVisType || "staff");
+        vis.className = "mp-score-vis";
+        host.appendChild(vis);
+        self.__scoreVis = vis;
+        if (cb) { cb(); }
+      })["catch"](function(e) {
+        console.error("[MidiPlayer] score visualizer load failed:", e);
+        self.__statusLabel.setValue("악보 로드 실패");
+      });
+    },
+
+    /** 현재 곡을 악보로 로드 (src 파싱 → noteSequence) */
+    _loadScore: function() {
+      var self = this;
+      if (!this.__scoreVis || !this.__currentUri) {
+        return;
+      }
+      // 로드 토큰: 곡을 연속으로 바꿔도 최신 로드만 유효
+      var seq = (this.__scoreLoadSeq = (this.__scoreLoadSeq || 0) + 1);
+      var targetUri = this.__currentUri;
+      this.__scoreNotes = null;
+      this.__scoreCursor = 0;
+      this.__scoreForceRedraw = true;
+      try { this.__scoreVis.clearActiveNotes(); } catch (e) { /* ignore */ }
+      // 이전 곡의 noteSequence를 비워, 새 곡 파싱 완료 전 stale 데이터를 잡지 않게 한다
+      // (악보보기가 켜진 채 곡을 바꾸면 이전 악보가 남던 문제 방지)
+      try { this.__scoreVis.noteSequence = null; } catch (e) { /* ignore */ }
+      // src 설정 → 내부에서 urlToNoteSequence로 파싱 + 렌더
+      this.__scoreVis.src = targetUri;
+      // 새 noteSequence 준비되면 startTime 정렬 배열 구성
+      var tries = 0;
+      var poll = function() {
+        if (!self.__scoreVis || seq !== self.__scoreLoadSeq) {
+          return; // 더 최신 로드가 시작됨 → 이 poll은 폐기
+        }
+        var ns = self.__scoreVis.noteSequence;
+        if (ns && ns.notes && ns.notes.length) {
+          self.__scoreNotes = ns.notes.slice().sort(function(a, b) {
+            return (a.startTime || 0) - (b.startTime || 0);
+          });
+          self.__scoreCursor = 0;
+          self.__scoreForceRedraw = true;
+        } else if (tries++ < 80) {
+          window.setTimeout(poll, 100);
+        }
+      };
+      poll();
+    },
+
+    _startScoreTick: function() {
+      if (this.__scoreRaf) {
+        return;
+      }
+      var self = this;
+      var tick = function() {
+        self.__scoreRaf = requestAnimationFrame(tick);
+        self._scoreTick();
+      };
+      tick();
+    },
+
+    _stopScoreTick: function() {
+      if (this.__scoreRaf) {
+        cancelAnimationFrame(this.__scoreRaf);
+        this.__scoreRaf = null;
+      }
+    },
+
+    /** 활성 엔진의 현재 재생 위치(초) */
+    _engineCurrentTime: function() {
+      if (this.__engineMode === "real") {
+        return this.__spSeq ? this.__spSeq.currentTime : null;
+      }
+      return this.__playerEl ? this.__playerEl.currentTime : null;
+    },
+
+    /** 매 프레임: 현재 시각에 해당하는 음표를 강조 + 스크롤 */
+    _scoreTick: function() {
+      if (!this.__scoreOn || !this.__scoreVis) {
+        return;
+      }
+      var notes = this.__scoreNotes;
+      if (!notes || !notes.length) {
+        return;
+      }
+      var t = this._engineCurrentTime();
+      if (t == null) {
+        return;
+      }
+      var i = this.__scoreCursor || 0;
+      // 앞으로 진행
+      while (i + 1 < notes.length && (notes[i + 1].startTime || 0) <= t) {
+        i++;
+      }
+      // 되감기(시크) 대응
+      while (i > 0 && (notes[i].startTime || 0) > t) {
+        i--;
+      }
+      if (i !== this.__scoreCursor || this.__scoreForceRedraw) {
+        this.__scoreCursor = i;
+        this.__scoreForceRedraw = false;
+        var n = notes[i];
+        if (n && (n.startTime || 0) <= t + 0.05) {
+          try { this.__scoreVis.redraw(n); } catch (e) { /* ignore */ }
+        }
+      }
+    },
+
     _toggleShuffle: function() {
       this.__shuffle = !this.__shuffle;
       if (this.__shuffleBtn) {
@@ -1356,6 +1588,7 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         window.clearTimeout(this.__searchTimer);
         this.__searchTimer = null;
       }
+      this._stopScoreTick();
       if (this.__objUrl) {
         URL.revokeObjectURL(this.__objUrl);
         this.__objUrl = null;
