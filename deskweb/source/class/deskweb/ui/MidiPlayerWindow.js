@@ -99,6 +99,9 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     BITMIDI_BASE: "https://bitmidi.com",
     /** 내장 BitMidi 간편재생 카탈로그 (사전 카테고라이징) */
     BITMIDI_CATALOG: "deskweb/midi/bitmidi.json",
+    /** 악보보기: 한 페이지(행)에 담는 시간 길이(초). 대곡 프리즈 방지를 위한 윈도우 크기 */
+    SCORE_PAGE_SEC: 8,
+
     /** BitMidi 모드 장르(간편재생 카테고리) */
     BITMIDI_GENRES: ["전체", "인기", "게임", "영화", "애니", "팝록", "클래식", "재즈", "캐럴"],
     /** 내 라이브러리 모드 장르 */
@@ -175,10 +178,14 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         ".mp-btn.mp-play{width:52px;height:52px;font-size:22px;",
         "background:radial-gradient(circle at 50% 30%,#ffe6a0,#ffbe45 55%,#d98a1e);color:#5b3608;}",
         ".mp-btn.mp-on{background:radial-gradient(circle at 50% 30%,#bfe9c0,#4ad06a 60%,#2a9a48);color:#0c3a1a;}",
-        /* 악보 비주얼라이저 (스태프/피아노롤 스크롤) */
-        ".mp-score-vis{display:block;width:100%;min-height:100%;}",
-        ".mp-score-vis svg{max-width:none;height:auto;}",
-        ".mp-score-vis .active{fill:#e8451e;}"
+        /* 악보 2행 스택 (상단=현재/하단=다음, 가로 스크롤 + 페이지 세로 전환) */
+        ".mp-score-wrap{display:flex;flex-direction:column;width:100%;height:100%;gap:4px;}",
+        ".mp-score-row{flex:1 1 50%;min-height:0;overflow:auto;position:relative;",
+        "background:#ffffff;border:1px solid #e6e2d0;border-radius:4px;}",
+        ".mp-score-row.mp-score-active{background:#fffdf3;border-color:#ffce6b;",
+        "box-shadow:inset 0 0 0 2px rgba(255,190,69,.55);}",
+        ".mp-score-row svg{max-width:none;height:auto;}",
+        ".mp-score-row .active{fill:#e8451e;}"
       ].join("");
       var style = document.createElement("style");
       style.type = "text/css";
@@ -256,10 +263,16 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
     __scoreBtn: null,
     __scorePanel: null,
     __scoreHtml: null,
-    __scoreVis: null,         // <midi-visualizer>
+    __scoreWrap: null,        // 2행 스택 컨테이너
+    __scoreTop: null,         // 현재 페이지 <midi-visualizer>
+    __scoreBot: null,         // 다음 페이지 <midi-visualizer> (선행 준비)
+    __scoreFullNs: null,      // 전체 파싱 NoteSequence (렌더 안 함)
+    __topNotes: null,         // 상단 행 페이지 노트
+    __botNotes: null,         // 하단 행 페이지 노트
+    __topPage: null,          // 상단 행 페이지 인덱스
     __scoreTypeBox: null,
     __scoreVisType: null,     // "staff" | "piano-roll"
-    __scoreNotes: null,       // startTime 정렬 노트 배열
+    __scoreNotes: null,       // 현재 페이지 startTime 정렬 노트(커서용)
     __scoreCursor: null,      // 현재 강조 노트 인덱스
     __scoreRaf: null,         // 커서 rAF
     __currentUri: null,       // 현재 곡 재생/악보 공용 URI (objURL 1개)
@@ -1356,34 +1369,42 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         this.__statusLabel.setValue("악보보기 켜짐 🎼 — 재생하면 악보가 연주를 따라갑니다.");
       } else {
         this._stopScoreTick();
-        if (this.__scoreVis && this.__scoreVis.clearActiveNotes) {
-          try { this.__scoreVis.clearActiveNotes(); } catch (e) { /* ignore */ }
-        }
+        this._clearScoreRows();
         this.__scorePanel.exclude();
       }
+    },
+
+    _clearScoreRows: function() {
+      try { if (this.__scoreTop) { this.__scoreTop.clearActiveNotes(); } } catch (e) { /* ignore */ }
+      try { if (this.__scoreBot) { this.__scoreBot.clearActiveNotes(); } } catch (e) { /* ignore */ }
     },
 
     _onScoreTypeChange: function() {
       var sel = this.__scoreTypeBox.getSelection()[0];
       this.__scoreVisType = sel ? sel.getModel() : "staff";
-      if (this.__scoreVis) {
+      if (this.__scoreTop) {
         try {
-          this.__scoreVis.type = this.__scoreVisType;
+          this.__scoreTop.type = this.__scoreVisType;
+          this.__scoreBot.type = this.__scoreVisType;
         } catch (e) { /* ignore */ }
+        this.__topPage = -1; // 강제 재렌더
         this._loadScore();
       }
     },
 
-    /** <midi-visualizer> 요소 지연 생성 (html-midi-player 로드 필요) */
+    /**
+     * 악보 2행 스택(현재/다음) 지연 생성.
+     * 상단 행 = 현재 페이지(커서 진행), 하단 행 = 다음 페이지(선행 준비).
+     * → 페이지 내 가로 스크롤 + 페이지 전환 시 세로 이동의 혼합.
+     */
     _ensureScoreVis: function(cb) {
       var self = this;
-      if (this.__scoreVis) {
+      if (this.__scoreTop) {
         if (cb) { cb(); }
         return;
       }
       var host = this.__scoreHtml.getContentElement().getDomElement();
       if (!host) {
-        // 패널이 아직 표시 전 → 나타나면 재시도
         this.__scoreHtml.addListenerOnce("appear", function() {
           self._ensureScoreVis(cb);
         });
@@ -1391,11 +1412,20 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       }
       deskweb.ui.MidiPlayerWindow.injectCss();
       deskweb.ui.MidiPlayerWindow.loadLib().then(function() {
-        var vis = document.createElement("midi-visualizer");
-        vis.setAttribute("type", self.__scoreVisType || "staff");
-        vis.className = "mp-score-vis";
-        host.appendChild(vis);
-        self.__scoreVis = vis;
+        var wrap = document.createElement("div");
+        wrap.className = "mp-score-wrap";
+        var top = document.createElement("midi-visualizer");
+        var bot = document.createElement("midi-visualizer");
+        top.setAttribute("type", self.__scoreVisType || "staff");
+        bot.setAttribute("type", self.__scoreVisType || "staff");
+        top.className = "mp-score-row mp-score-active";
+        bot.className = "mp-score-row";
+        wrap.appendChild(top);
+        wrap.appendChild(bot);
+        host.appendChild(wrap);
+        self.__scoreWrap = wrap;
+        self.__scoreTop = top;
+        self.__scoreBot = bot;
         if (cb) { cb(); }
       })["catch"](function(e) {
         console.error("[MidiPlayer] score visualizer load failed:", e);
@@ -1403,42 +1433,118 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       });
     },
 
-    /** 현재 곡을 악보로 로드 (src 파싱 → noteSequence) */
+    /** magenta 코어 네임스페이스 (html-midi-player 로드 후 전역 노출) */
+    _magenta: function() {
+      return window.core || window.mm || null;
+    },
+
+    /**
+     * 현재 곡을 악보로 로드.
+     * 전체를 한 번에 렌더하면 대곡에서 메인스레드가 수십 초 얼어붙으므로,
+     * urlToNoteSequence로 렌더 없이 파싱만 한 뒤 시간 윈도우(페이지) 단위로만 렌더한다.
+     */
     _loadScore: function() {
       var self = this;
-      if (!this.__scoreVis || !this.__currentUri) {
+      var mm = this._magenta();
+      if (!this.__scoreTop || !this.__currentUri) {
         return;
       }
       // 로드 토큰: 곡을 연속으로 바꿔도 최신 로드만 유효
       var seq = (this.__scoreLoadSeq = (this.__scoreLoadSeq || 0) + 1);
-      var targetUri = this.__currentUri;
+      var uri = this.__currentUri;
+      this.__scoreFullNs = null;
       this.__scoreNotes = null;
+      this.__topPage = -1;
       this.__scoreCursor = 0;
       this.__scoreForceRedraw = true;
-      try { this.__scoreVis.clearActiveNotes(); } catch (e) { /* ignore */ }
-      // 이전 곡의 noteSequence를 비워, 새 곡 파싱 완료 전 stale 데이터를 잡지 않게 한다
-      // (악보보기가 켜진 채 곡을 바꾸면 이전 악보가 남던 문제 방지)
-      try { this.__scoreVis.noteSequence = null; } catch (e) { /* ignore */ }
-      // src 설정 → 내부에서 urlToNoteSequence로 파싱 + 렌더
-      this.__scoreVis.src = targetUri;
-      // 새 noteSequence 준비되면 startTime 정렬 배열 구성
-      var tries = 0;
-      var poll = function() {
-        if (!self.__scoreVis || seq !== self.__scoreLoadSeq) {
-          return; // 더 최신 로드가 시작됨 → 이 poll은 폐기
+      this._clearScoreRows();
+
+      if (!mm || !mm.urlToNoteSequence) {
+        // 파서 전역이 없으면 폴백(소형 곡 한정 통짜 렌더)
+        try { this.__scoreTop.src = uri; } catch (e) { /* ignore */ }
+        return;
+      }
+      mm.urlToNoteSequence(uri).then(function(ns) {
+        if (seq !== self.__scoreLoadSeq) {
+          return; // 더 최신 로드가 시작됨
         }
-        var ns = self.__scoreVis.noteSequence;
-        if (ns && ns.notes && ns.notes.length) {
-          self.__scoreNotes = ns.notes.slice().sort(function(a, b) {
-            return (a.startTime || 0) - (b.startTime || 0);
-          });
-          self.__scoreCursor = 0;
-          self.__scoreForceRedraw = true;
-        } else if (tries++ < 80) {
-          window.setTimeout(poll, 100);
+        self.__scoreFullNs = ns;
+        var PAGE = deskweb.ui.MidiPlayerWindow.SCORE_PAGE_SEC;
+        var t = self._engineCurrentTime() || 0;
+        self._renderPages(Math.max(0, Math.floor(t / PAGE)));
+      })["catch"](function(e) {
+        console.error("[MidiPlayer] score parse failed:", e);
+        self.__statusLabel.setValue("악보 파싱 실패");
+      });
+    },
+
+    /** [a,c) 시간 구간에 걸치는 음표만 담은 서브 시퀀스 (같은 note 객체 참조 유지) */
+    _pageSub: function(a, c) {
+      var ns = this.__scoreFullNs;
+      var all = ns.notes;
+      var notes = [];
+      for (var i = 0; i < all.length; i++) {
+        var n = all[i];
+        if ((n.startTime || 0) < c && (n.endTime || 0) > a) {
+          notes.push(n);
         }
+      }
+      return {
+        notes: notes,
+        tempos: ns.tempos,
+        timeSignatures: ns.timeSignatures,
+        totalTime: ns.totalTime,
+        ticksPerQuarter: ns.ticksPerQuarter,
+        quantizationInfo: ns.quantizationInfo
       };
-      poll();
+    },
+
+    /** 한 행에 지정 페이지를 렌더하고 그 페이지의 note 배열을 반환 */
+    _renderInto: function(elem, idx) {
+      var PAGE = deskweb.ui.MidiPlayerWindow.SCORE_PAGE_SEC;
+      var sub = this._pageSub(idx * PAGE, (idx + 1) * PAGE);
+      try { elem.noteSequence = sub; } catch (e) { /* ignore */ }
+      return sub.notes;
+    },
+
+    /** 상단=현재 페이지, 하단=다음 페이지. 정상 진행 시 준비된 하단을 위로 올려 재렌더 최소화 */
+    _renderPages: function(idx) {
+      if (!this.__scoreFullNs || !this.__scoreTop) {
+        return;
+      }
+      if (idx === this.__topPage) {
+        return;
+      }
+      if (this.__topPage < 0 || idx !== this.__topPage + 1) {
+        // 최초 로드 또는 시크(비연속): 두 행 새로 렌더
+        this.__topNotes = this._renderInto(this.__scoreTop, idx);
+        this.__botNotes = this._renderInto(this.__scoreBot, idx + 1);
+      } else {
+        // 정상 진행: 미리 준비된 하단 행을 위로 올리고, 새 다음 페이지를 하단에 준비
+        var host = this.__scoreTop.parentNode;
+        if (host) {
+          host.insertBefore(this.__scoreBot, this.__scoreTop);
+        }
+        var newTop = this.__scoreBot;
+        var newBot = this.__scoreTop;
+        this.__scoreTop = newTop;
+        this.__scoreBot = newBot;
+        this.__topNotes = this.__botNotes; // 이미 page(idx) 렌더 완료
+        this.__botNotes = this._renderInto(this.__scoreBot, idx + 1);
+      }
+      this.__topPage = idx;
+      if (this.__scoreTop.classList) {
+        this.__scoreTop.classList.add("mp-score-active");
+      }
+      if (this.__scoreBot.classList) {
+        this.__scoreBot.classList.remove("mp-score-active");
+      }
+      // 커서용 정렬 배열(같은 note 객체 참조 → redraw 매칭)
+      this.__scoreNotes = (this.__topNotes || []).slice().sort(function(a, b) {
+        return (a.startTime || 0) - (b.startTime || 0);
+      });
+      this.__scoreCursor = 0;
+      this.__scoreForceRedraw = true;
     },
 
     _startScoreTick: function() {
@@ -1468,25 +1574,28 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
       return this.__playerEl ? this.__playerEl.currentTime : null;
     },
 
-    /** 매 프레임: 현재 시각에 해당하는 음표를 강조 + 스크롤 */
+    /** 매 프레임: 페이지 전환 + 현재 시각 음표 강조/스크롤 */
     _scoreTick: function() {
-      if (!this.__scoreOn || !this.__scoreVis) {
-        return;
-      }
-      var notes = this.__scoreNotes;
-      if (!notes || !notes.length) {
+      if (!this.__scoreOn || !this.__scoreTop || !this.__scoreFullNs) {
         return;
       }
       var t = this._engineCurrentTime();
       if (t == null) {
         return;
       }
+      var PAGE = deskweb.ui.MidiPlayerWindow.SCORE_PAGE_SEC;
+      var pageIdx = Math.max(0, Math.floor(t / PAGE));
+      if (pageIdx !== this.__topPage) {
+        this._renderPages(pageIdx);
+      }
+      var notes = this.__scoreNotes;
+      if (!notes || !notes.length) {
+        return;
+      }
       var i = this.__scoreCursor || 0;
-      // 앞으로 진행
       while (i + 1 < notes.length && (notes[i + 1].startTime || 0) <= t) {
         i++;
       }
-      // 되감기(시크) 대응
       while (i > 0 && (notes[i].startTime || 0) > t) {
         i--;
       }
@@ -1494,8 +1603,8 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         this.__scoreCursor = i;
         this.__scoreForceRedraw = false;
         var n = notes[i];
-        if (n && (n.startTime || 0) <= t + 0.05) {
-          try { this.__scoreVis.redraw(n); } catch (e) { /* ignore */ }
+        if (n && (n.startTime || 0) <= t + 0.1) {
+          try { this.__scoreTop.redraw(n); } catch (e) { /* ignore */ }
         }
       }
     },
