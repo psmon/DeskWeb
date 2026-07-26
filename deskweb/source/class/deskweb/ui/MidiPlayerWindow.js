@@ -58,28 +58,31 @@ qx.Class.define("deskweb.ui.MidiPlayerWindow", {
         return clazz.__spessaPromise;
       }
       clazz.__spessaPromise = new Promise(function(resolve, reject) {
-        if (window.__spessaLib) {
-          resolve(window.__spessaLib);
+        // 주의: 아래 window 전역은 인라인 스크립트 문자열과 이름이 반드시 일치해야 한다.
+        // qooxdoo build 타깃은 '__' 접두사 식별자를 맹글링하므로 '__'를 쓰면 안 됨
+        // (문자열 안의 이름은 맹글링되지 않아 read/write 이름이 어긋난다).
+        if (window.deskwebSpessaLib) {
+          resolve(window.deskwebSpessaLib);
           return;
         }
         var evOk = "deskweb-spessa-ready";
         var evErr = "deskweb-spessa-error";
         window.addEventListener(evOk, function h() {
           window.removeEventListener(evOk, h);
-          resolve(window.__spessaLib);
+          resolve(window.deskwebSpessaLib);
         });
         window.addEventListener(evErr, function h() {
           window.removeEventListener(evErr, h);
           clazz.__spessaPromise = null;
-          reject(window.__spessaErr || new Error("SpessaSynth 로드 실패"));
+          reject(window.deskwebSpessaErr || new Error("SpessaSynth 로드 실패"));
         });
         // dynamic import()는 qooxdoo 트랜스파일을 피하려고 인라인 스크립트로 실행
         var s = document.createElement("script");
         s.textContent =
           'import(' + JSON.stringify(clazz.SPESSA_ESM) + ')' +
-          '.then(function(m){window.__spessaLib=m;' +
+          '.then(function(m){window.deskwebSpessaLib=m;' +
           'window.dispatchEvent(new Event("' + evOk + '"));})' +
-          '.catch(function(e){window.__spessaErr=e;' +
+          '.catch(function(e){window.deskwebSpessaErr=e;' +
           'window.dispatchEvent(new Event("' + evErr + '"));});';
         document.head.appendChild(s);
       });
