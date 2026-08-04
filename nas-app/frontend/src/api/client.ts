@@ -71,4 +71,31 @@ export const api = {
 
   /** URL to stream a local NAS MIDI file (fed to the engine). */
   streamUrl: (path: string) => `/api/stream?path=${encodeURIComponent(path)}`,
+
+  /** BitMidi online search (via backend proxy). Needs NAS internet access. */
+  bitmidiSearch: async (q: string): Promise<BitmidiResult[]> => {
+    const res = await fetch(`/api/bitmidi/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error(`bitmidi 검색 실패 (${res.status})`);
+    const j = (await res.json()) as { result?: { results?: BitmidiRow[] } };
+    const rows = j?.result?.results ?? [];
+    return rows
+      .filter((r) => r.downloadUrl)
+      .map((r) => ({
+        title: String(r.name ?? "").replace(/\.mid$/i, ""),
+        url: new URL(r.downloadUrl!, "https://bitmidi.com").href,
+      }));
+  },
+
+  /** URL to stream a BitMidi file through the backend proxy. */
+  bitmidiFileUrl: (url: string) => `/api/bitmidi/file?url=${encodeURIComponent(url)}`,
 };
+
+interface BitmidiRow {
+  name?: string;
+  downloadUrl?: string;
+}
+
+export interface BitmidiResult {
+  title: string;
+  url: string;
+}

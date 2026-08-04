@@ -329,6 +329,52 @@ select {
   border-radius: 3px;
   overflow: hidden;
 }
+.np .bar.seekable {
+  cursor: pointer;
+  padding: 4px 0;
+  height: 14px;
+  background-clip: content-box;
+  background-color: #2a2a3a;
+}
+.np .bar.seekable .fill {
+  border-radius: 3px;
+}
+
+/* source switch + bitmidi */
+.source-switch {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+.source-switch button {
+  flex: 1;
+  background: #2a2a3a;
+  color: var(--muted);
+}
+.source-switch button.on {
+  background: #333350;
+  color: var(--ink);
+}
+.bitmidi {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: 12px;
+}
+.bitmidi .search {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.bitmidi .search input {
+  flex: 1;
+  background: #2a2a3a;
+  color: var(--ink);
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
 .np .fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent2));

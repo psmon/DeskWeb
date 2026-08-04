@@ -82,12 +82,18 @@ CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 
 - `open_type: inner` → UGOS 데스크톱 내 독립 창(JSSDK로 NAS 사용자 인증 연동 가능).
 - 설치 경로: `/volume{n}/@appstore/{app_id}` ( `bin/`, `www/`, `data/`, `log/`, `icon.png` ).
 
-## 남은 확인/작업
+### NAS 폴더 접근 (UGOS 메커니즘)
+`project.yaml`에 `allow_add_access_path: true` 선언 → 사용자가 **UGOS 앱 설정 화면**에서 폴더를 인가하면
+`$UGAPP_SHARED_DIR` 아래에 심볼릭 링크로 노출된다. 백엔드는 이 디렉토리의 항목들을 자동으로 접근 루트로 삼는다
+(코드: `SharedRoots()`). 앱 내 설정의 "폴더 찾아보기"는 dev/독립실행용 폴백(샌드박스에선 제한됨).
+인터넷(BitMidi)은 `permissions: [NETWORK.ACCESS_INTERNET]` 선언으로 허용.
 
-- **NAS 공유폴더 접근 권한** — 앱이 `/volume1/...`을 브라우즈하려면 권한/파일 접근 방식 확인(JSSDK 파일 피커 또는 공유 경로 설정). 현재 `MIDI_ROOTS` 기본은 data 하위.
-- **`proxy_path` 프리픽스 스트립 여부** — 게이트웨이가 `/api` 프리픽스를 백엔드에 유지해 전달하는지 첫 설치 시 로그로 확인(우리 라우트는 `/api/*` 기준).
-- `packaging/rootfs_common/icon.png` (256×256 PNG, <100KB) — `frontend/public/icon.svg`에서 생성 필요.
+## 남은 작업 (배포 전)
+
+- **악보보기(스코어)** · **simple 엔진(html-midi-player)** · **주크박스 스킨** — html-midi-player/magenta 벤더링 묶음(다음 배치).
 - simple 엔진용 Magenta SGM_plus 사운드폰트 로컬 미러링(용량) 여부.
+- **`proxy_path` 프리픽스 스트립 여부** — 게이트웨이가 `/api` 프리픽스를 백엔드에 유지해 전달하는지 첫 설치 시 로그로 확인.
+- **완료**: 워킹 스켈레톤 · 악단 애니 · NAS 폴더 접근(UGAPP_SHARED_DIR) · BitMidi 검색 · 시크바 · 볼륨 · icon.png · UGOS 네이티브 project.yaml.
 
 ## 보안 메모
 

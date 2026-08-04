@@ -25,6 +25,14 @@ proxy_path: api
 # Opens as an independent window inside the UGOS Pro desktop (JSSDK-capable).
 open_type: inner
 
+# Let users authorize NAS folders on the app settings page; authorized folders
+# are symlinked under $UGAPP_SHARED_DIR (the backend exposes them as roots).
+allow_add_access_path: true
+
+# Internet access is required for BitMidi online search/streaming.
+permissions:
+  - NETWORK.ACCESS_INTERNET
+
 tag_types:
   - multimedia
   - utility

@@ -13,14 +13,14 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default));
 
 // ---- Configuration ------------------------------------------------------
-// Data dir (writable): where settings.json lives. On UGOS the process working
-// directory IS the app's data dir (/volume{n}/@appdata/{app_id}); use it.
-var dataDir = Environment.GetEnvironmentVariable("MIDI_DATA_DIR")
+// Data dir (writable). UGOS sets UGAPP_DATA_DIR and makes it the working dir.
+var dataDir = Environment.GetEnvironmentVariable("UGAPP_DATA_DIR")
+              ?? Environment.GetEnvironmentVariable("MIDI_DATA_DIR")
               ?? Directory.GetCurrentDirectory();
 Directory.CreateDirectory(dataDir);
 
-// Allowed root folders (the jail). Semicolon-separated. On a NAS these are the
-// shared folders / network mounts the admin exposes. Dev falls back to data/music.
+// Admin/dev-configured extra roots (semicolon-separated). Dev falls back to
+// data/music so there is always a writable place to drop files.
 var rootsRaw = Environment.GetEnvironmentVariable("MIDI_ROOTS");
 var roots = string.IsNullOrWhiteSpace(rootsRaw)
     ? new[] { Path.Combine(dataDir, "music") }
@@ -28,6 +28,17 @@ var roots = string.IsNullOrWhiteSpace(rootsRaw)
 foreach (var r in roots)
 {
     try { Directory.CreateDirectory(r); } catch { /* mount may be read-only */ }
+}
+
+// On UGOS, folders the user authorizes (allow_add_access_path) are symlinked
+// under $UGAPP_SHARED_DIR — each becomes a browsable root automatically.
+string[] SharedRoots()
+{
+    var shared = Environment.GetEnvironmentVariable("UGAPP_SHARED_DIR");
+    if (string.IsNullOrWhiteSpace(shared) || !Directory.Exists(shared))
+        return Array.Empty<string>();
+    try { return Directory.GetDirectories(shared); }
+    catch { return Array.Empty<string>(); }
 }
 
 // Port precedence: --port=NNNN arg (UGOS start_cmd) → MIDI_PORT env → 29090.
@@ -39,8 +50,9 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 var app = builder.Build();
 
 var settings = new SettingsStore(dataDir);
-// Jail roots = admin-configured MIDI_ROOTS ∪ folders the owner added in Settings.
-var browser = new FileBrowser(() => roots.Concat(settings.Get().ScanFolders));
+// Jail roots = UGOS-authorized shared folders ∪ MIDI_ROOTS ∪ Settings folders.
+var browser = new FileBrowser(() =>
+    SharedRoots().Concat(roots).Concat(settings.Get().ScanFolders));
 var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
 // ---- Static UI (www/) ---------------------------------------------------

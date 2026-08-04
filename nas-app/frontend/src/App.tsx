@@ -135,6 +135,28 @@ export default function App() {
     [engine],
   );
 
+  const playBitmidi = useCallback(
+    async (title: string, url: string) => {
+      setError(null);
+      setBusy(true);
+      try {
+        const res = await fetch(api.bitmidiFileUrl(url));
+        if (!res.ok) throw new Error(`bitmidi ${res.status}`);
+        const buf = await res.arrayBuffer();
+        bandRef.current?.reset();
+        bandRef.current?.setSong(title);
+        await engine().play(buf, title);
+        setNow({ title, path: url });
+        setPaused(false);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [engine],
+  );
+
   const togglePlay = useCallback(() => {
     const eng = engineRef.current;
     if (!eng || !now) return;
@@ -150,6 +172,14 @@ export default function App() {
   const changeVolume = useCallback((v: number) => {
     setVolume(v);
     engineRef.current?.setVolume(v);
+  }, []);
+
+  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const eng = engineRef.current;
+    if (!eng || !eng.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    eng.currentTime = frac * eng.duration;
   }, []);
 
   const saveSettings = useCallback(async (s: AppSettings) => {
@@ -195,6 +225,7 @@ export default function App() {
           onNavigate={navigate}
           onScan={scan}
           onPlay={play}
+          onPlayBitmidi={playBitmidi}
         />
         <SettingsView hidden={view !== "settings"} settings={settings} onSave={saveSettings} />
       </main>
@@ -205,7 +236,7 @@ export default function App() {
         </button>
         <div className="np">
           <div className="title">{now?.title ?? "재생 중인 곡 없음"}</div>
-          <div className="bar">
+          <div className="bar seekable" onClick={seek}>
             <div
               className="fill"
               style={{ width: progress.d ? `${(progress.t / progress.d) * 100}%` : "0%" }}
