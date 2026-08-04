@@ -1,0 +1,93 @@
+name: nas-app release
+
+# Builds the MIDI Ani Player UPK for UGOS (amd64 + arm64) and publishes the
+# .upk artifacts to a GitHub Release. Triggered by a tag like `nas-app-v1.0.0`.
+on:
+  push:
+    tags:
+      - "nas-app-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm # native arm64 runner → no cross toolchain
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: nas-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Native AOT needs the clang/zlib toolchain.
+      - name: Install AOT prerequisites
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Build (${{ matrix.arch }})
+        run: bash scripts/build.sh ${{ matrix.arch }}
+
+      - name: Upload rootfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootfs-${{ matrix.arch }}
+          path: |
+            nas-app/packaging/rootfs_${{ matrix.arch }}/bin/midi-ani-player
+            nas-app/packaging/rootfs_common/www
+
+  pack:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nas-app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download rootfs artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: nas-app/_artifacts
+
+      - name: Stage payload
+        run: |
+          mkdir -p packaging/rootfs_amd64/bin packaging/rootfs_arm64/bin packaging/rootfs_common/www
+          cp _artifacts/rootfs-amd64/bin/midi-ani-player packaging/rootfs_amd64/bin/
+          cp _artifacts/rootfs-arm64/bin/midi-ani-player packaging/rootfs_arm64/bin/
+          cp -r _artifacts/rootfs-amd64/www/* packaging/rootfs_common/www/ || true
+          chmod +x packaging/rootfs_*/bin/midi-ani-player
+
+      # ugcli is not publicly distributed via a package registry; install it in a
+      # self-hosted step or vendor it here. If unavailable, this step stages the
+      # payload and the release below ships the rootfs tarball instead.
+      - name: Pack UPK
+        id: pack
+        continue-on-error: true
+        run: bash scripts/pack-upk.sh
+
+      - name: Fallback tarball (if ugcli unavailable)
+        if: steps.pack.outcome != 'success'
+        run: |
+          tar -czf build_dir/nas-app-rootfs.tar.gz -C packaging .
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            nas-app/build_dir/*.upk
+            nas-app/build_dir/*.tar.gz

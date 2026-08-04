@@ -1,0 +1,48 @@
+# UGREEN UGOS Pro — native application manifest.
+# Schema verified against developer.ugnas.com/doc/backend (native app spec).
+#
+# How it runs on the device:
+#   - The system web server serves rootfs_common/www at the app root (/).
+#   - The gateway forwards requests under /<proxy_path>/ (here /api/) to our
+#     backend service on `port`. So the SPA's /api/* fetches reach us; static
+#     assets are served by UGOS, not by our binary.
+#   - System sets the process working directory to the app's data/ dir and
+#     detects successful startup by connecting to `port`.
+
+spec_version: "2.1"
+app_id: webnori.midi-ani-player
+version: 1.0.0
+
+support_arch:
+  - amd64
+  - arm64
+
+# Backend service launch command (executable is rootfs_{arch}/bin/midi-ani-player).
+start_cmd: bin/midi-ani-player --port=29090
+port: 29090
+proxy_path: api
+
+# Opens as an independent window inside the UGOS Pro desktop (JSSDK-capable).
+open_type: inner
+
+tag_types:
+  - multimedia
+  - utility
+
+depend_fw_version: 1.13.0.0000
+
+i18n:
+  en-US:
+    name: MIDI Ani Player
+    description: >-
+      A MIDI player for your NAS with an animated performer band and score view.
+      Plays .mid files from your NAS folders in the browser.
+    author: webnori
+    publisher: webnori
+  ko-KR:
+    name: MIDI 애니 플레이어
+    description: >-
+      악단 애니메이션과 악보보기를 갖춘 NAS용 MIDI 플레이어.
+      NAS 폴더의 .mid 파일을 웹에서 재생합니다.
+    author: webnori
+    publisher: webnori

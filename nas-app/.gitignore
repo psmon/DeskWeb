@@ -1,0 +1,25 @@
+# build artifacts
+backend/bin/
+backend/obj/
+backend/artifacts/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# assembled UPK payloads (produced by scripts/build.sh)
+packaging/rootfs_common/www/
+packaging/rootfs_amd64/bin/midi-ani-player
+packaging/rootfs_arm64/bin/midi-ani-player
+build_dir/
+
+# vendored large binaries (fetched by scripts/fetch-assets)
+frontend/public/vendor/*.sf3
+frontend/public/vendor/*.sf2
+
+# local dev data
+backend/data/
+
+# e2e (playwright) — local only
+.e2e/
+
+backend/settings.json
