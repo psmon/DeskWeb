@@ -25,3 +25,6 @@ tmp/
 
 # IDE
 .idea/
+
+# secrets (never commit)
+.secret/
