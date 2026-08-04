@@ -55,12 +55,23 @@ npm run dev        # http://localhost:5173
 | `MIDI_DATA_DIR` | `<bin>/data` | settings.json 저장 위치 |
 | `MIDI_WWW` | `<bin>/../www` → `<bin>/www` | 정적 UI 경로 override |
 
-## 빌드 & 패키징 (Linux/CI)
+## 빌드 & 패키징
 
+**옵션 A — Docker만으로 (권장, OS 무관)**: 로컬에 .NET/Node/clang 불필요.
 ```bash
-bash scripts/build.sh amd64      # UI + AOT(x64) → packaging/rootfs_amd64
-bash scripts/build.sh arm64      # UI + AOT(arm64) → packaging/rootfs_arm64
-bash scripts/pack-upk.sh 1       # ugcli pack --build 1 → {arch}_webnori.midi-ani-player_1.0.0.0001.upk
+bash scripts/build-docker.sh amd64   # UI + AOT(x64) → packaging/rootfs_amd64
+bash scripts/build-docker.sh arm64   # arm64 (QEMU 에뮬 또는 arm64 호스트)
+```
+
+**옵션 B — 로컬 툴체인(Debian 12)**:
+```bash
+bash scripts/build.sh amd64          # UI + AOT(x64)
+bash scripts/build.sh arm64          # UI + AOT(arm64)
+```
+
+**UPK 팩** (ugcli 필요 — UGREEN 개발자 포털에서 설치):
+```bash
+cd packaging && ugcli pack --build 1  # → {arch}_webnori.midi-ani-player_1.0.0.0001.upk
 ```
 
 CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 amd64/arm64 빌드 후 GitHub Release에 산출물 게시.
