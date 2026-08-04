@@ -19,3 +19,9 @@ node_modules/
 # Python virtual environment
 .venv/
 **/.venv
+
+# Local scratch (may contain device serial/MAC/personal info — never publish)
+tmp/
+
+# IDE
+.idea/
