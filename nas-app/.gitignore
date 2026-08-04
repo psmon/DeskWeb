@@ -26,3 +26,6 @@ backend/settings.json
 
 # packaged payload output
 dist/
+
+# downloaded tools (ugcli)
+.tools/

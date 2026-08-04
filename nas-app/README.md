@@ -6,19 +6,21 @@ DeskWeb의 MIDI Player를 **NAS 전용 웹 앱**으로 떼어낸 프로젝트.
 - **백엔드**: .NET 10 Native AOT 단일 바이너리 `midi-ani-player` (linux-x64 / linux-arm64).
   정적 UI(`www/`) 서빙 + NAS 파일 접근 API + BitMidi 검색 프록시.
 - **프론트**: React + Vite + TS (`www/`로 빌드).
-- **패키징**: UGREEN **UGOS UPK** (`is_docker_app: false`), app_id `webnori.midi-ani-player`. 시놀로지는 이후.
+- **패키징**: UGREEN **UGOS UPK** (`is_docker_app: false`), app_id `com.webnori.midiplayer`. 시놀로지는 이후.
 - **재생 엔진**: SpessaSynth(Real, 로컬 SF3) 기본 + html-midi-player(simple) — 자산 자체 호스팅(오프라인), BitMidi 온라인 검색.
 
 > 상세 설계: `../` 저장소 계획 문서 참조. 원본 위젯: `../deskweb/source/class/deskweb/ui/MidiPlayerWindow.js`.
 
-## 현재 상태 — Milestone 0 (워킹 스켈레톤) ✅
+## 현재 상태 ✅ (브라우저 실측 완료)
 
-end-to-end 최소 동작 완료 (검증됨):
-- 백엔드: `www/` 서빙 + `/api/health`·`/api/fs/roots`·`/api/fs/list`·`/api/fs/scan`·`/api/stream`(path-jail)·`/api/settings`·`/api/bitmidi/*`.
-- 프론트: NAS 폴더 브라우즈 → 스캔 → 곡 선택 → **SpessaSynth(로컬 SF3)** 재생 + 볼륨/진행바.
-- SPA 정적 서빙 + 클라이언트 라우팅 fallback 동작 확인.
+- **재생**: SpessaSynth Real HQ 엔진(로컬 SF3, 오프라인) · 볼륨 · **시크바**.
+- **악단 애니메이션**: GM 프로그램→연주자 스프라이트 + 64bin 스펙트럼(canvas).
+- **악보보기**: 오선보/피아노롤(html-midi-player, 재생 커서 동기화, lazy 로드).
+- **소스 3종**: 번들/NAS 폴더(UGOS 인가 연동) · **BitMidi 온라인 검색**(백엔드 프록시).
+- **설정**: 스캔 폴더 관리 · 엔진/볼륨/BitMidi (`/api/settings` 영속).
+- **패키징**: **실제 `.upk` 생성 검증** — ugcli 1.1.0.13로 `amd64_com.webnori.midiplayer_1.0.0.0001.upk` 서명 패키징 완료.
 
-아직 없음(다음 마일스톤): 악단 애니, 악보보기, 주크박스 스킨, BitMidi UI, 설정 화면, simple 엔진, 시크바, CI 실측, UPK 실팩, `icon.png`(256×256) 생성.
+미이식(선택): simple 엔진(html-midi-player 재생, SGM_plus 사운드폰트 이슈) · 주크박스 스킨(장식).
 
 ## 구조
 
@@ -71,7 +73,7 @@ bash scripts/build.sh arm64          # UI + AOT(arm64)
 
 **UPK 팩** (ugcli 필요 — UGREEN 개발자 포털에서 설치):
 ```bash
-cd packaging && ugcli pack --build 1  # → {arch}_webnori.midi-ani-player_1.0.0.0001.upk
+cd packaging && ugcli pack --build 1  # → {arch}_com.webnori.midiplayer_1.0.0.0001.upk
 ```
 
 CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 amd64/arm64 빌드 후 GitHub Release에 산출물 게시.
@@ -83,7 +85,7 @@ CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 
 1. **개발자 권한**: NAS를 UGOS Pro **1.13.0.0000+** 로 업데이트하고, UGREEN 공식 지원에 문의해 **해당 기기의 개발자 권한(authorization)** 을 받는다. (수동 설치의 필수 전제)
 2. **빌드/팩**: `scripts/build.sh amd64 && scripts/build.sh arm64` → `cd packaging && ugcli pack --build 1`.
 3. **수동 설치**: NAS의 **App Center → 수동 설치**로 `.upk` 업로드. 설치 후 데스크톱 아이콘으로 실행.
-4. **로그**: `/var/packages/webnori.midi-ani-player/log/webnori.midi-ani-player.log` (stdout/stderr 리다이렉트).
+4. **로그**: `/var/packages/com.webnori.midiplayer/log/com.webnori.midiplayer.log` (stdout/stderr 리다이렉트).
 5. **정식 배포**: 테스트 후 `.upk`를 UGREEN에 이메일로 제출 → 심사 통과 시 App Center 게시.
 
 ### UGOS 런타임 동작 (설계 반영됨)

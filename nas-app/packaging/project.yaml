@@ -10,7 +10,8 @@
 #     detects successful startup by connecting to `port`.
 
 spec_version: "2.1"
-app_id: webnori.midi-ani-player
+# app_id rule (ugcli): lowercase letters/numbers/dots, ≥2 dots, no hyphens.
+app_id: com.webnori.midiplayer
 version: 1.0.0
 
 support_arch:
@@ -34,7 +35,7 @@ permissions:
   - NETWORK.ACCESS_INTERNET
 
 tag_types:
-  - multimedia
+  - media
   - utility
 
 depend_fw_version: 1.13.0.0000

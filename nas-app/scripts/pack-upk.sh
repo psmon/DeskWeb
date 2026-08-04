@@ -27,7 +27,7 @@ else
   echo "⚠ ugcli not on PATH."
   echo "  Install it from the UGREEN developer portal, then run:"
   echo "     cd $PKG && ugcli pack --build $BUILD"
-  echo "  Expected output: {amd64|arm64}_webnori.midi-ani-player_1.0.0.000${BUILD}.upk"
+  echo "  Expected output: {amd64|arm64}_com.webnori.midiplayer_1.0.0.000${BUILD}.upk"
   echo
   echo "  Staged payload to verify:"
   echo "     $PKG/project.yaml"
