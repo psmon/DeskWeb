@@ -1,0 +1,22 @@
+# UGOS Container Manager — run MIDI Ani Player with NO UPK and NO UGREEN approval.
+#
+# Setup on the NAS (Container Manager / Docker):
+#   1. Import the image tar (dist/midi-ani-player-1.0.0-amd64-image.tar) OR pull
+#      from your registry so the image `midi-ani-player:1.0.0` exists locally.
+#   2. Edit the /music bind mount below to your NAS music shared folder.
+#   3. Create the project from this compose file and start it.
+#   4. Open  http://<NAS-IP>:29090
+services:
+  midi-ani-player:
+    image: midi-ani-player:1.0.0
+    container_name: midi-ani-player
+    ports:
+      - "29090:29090"          # host:container — change host port if needed
+    volumes:
+      - ./midi-data:/data       # settings.json (persisted)
+      - /volume1/Music:/music:ro   # ← CHANGE to your NAS music folder (read-only)
+    # Multiple folders? add more read-only mounts and set MIDI_ROOTS:
+    #   - /volume1/Songs:/music2:ro
+    # environment:
+    #   - MIDI_ROOTS=/music;/music2
+    restart: unless-stopped

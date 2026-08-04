@@ -78,7 +78,23 @@ cd packaging && ugcli pack --build 1  # → {arch}_com.webnori.midiplayer_1.0.0.
 
 CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 amd64/arm64 빌드 후 GitHub Release에 산출물 게시.
 
-## 유그린(UGOS Pro) 설치
+## 배포 경로 A — Docker / Container Manager (승인 불필요, 권장 테스트)
+
+UPK·개발자 인증 없이 UGOS **Container Manager**(1st-party Docker)에서 바로 실행.
+`docker save` 이미지 tar를 임포트하거나 레지스트리에서 pull → compose로 구동.
+
+- 산출물: `docker/Dockerfile`, `docker/docker-compose.yaml`, 이미지 tar(`dist/midi-ani-player-1.0.0-amd64-image.tar`, 41MB).
+- 로컬 검증 완료: 컨테이너 구동 → `/music` 바인드 마운트 102곡 스캔 → 재생·악단·악보 정상, 콘솔 에러 0.
+
+NAS에서:
+1. Container Manager에 이미지 tar 임포트(또는 레지스트리 pull) → `midi-ani-player:1.0.0`
+2. `docker-compose.yaml`의 `/volume1/Music` 바인드 마운트를 실제 음악 폴더로 수정
+3. compose로 프로젝트 생성·시작 → `http://<NAS-IP>:29090`
+
+> **NAS 폴더 접근이 더 쉬움**: `ugdev.sig`/`UGAPP_SHARED_DIR` 인가 없이 폴더를 바인드 마운트만 하면 됨.
+> arm64 NAS면 arm64 이미지 필요(`build-docker.sh arm64`로 빌드 후 buildx로 이미지 생성).
+
+## 배포 경로 B — 네이티브 UPK (App Center, 개발자 인증 필요)
 
 > 출처: developer.ugnas.com Backend 문서(네이티브 앱). 요약본은 `.e2e/docs/en/`.
 
