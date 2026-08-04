@@ -40,6 +40,14 @@ export class RealEngine {
       const AC: typeof AudioContext =
         window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AC();
+      // AudioWorklet only exists in a secure context (HTTPS or localhost).
+      // Over plain HTTP on a remote host it is undefined → give a clear message.
+      if (!ctx.audioWorklet) {
+        throw new Error(
+          "오디오 재생에는 HTTPS(보안 컨텍스트)가 필요합니다. HTTPS로 접속하거나 " +
+            "해당 호스트에서 localhost로 열어주세요. (원격 HTTP는 AudioWorklet 미지원)",
+        );
+      }
       await ctx.audioWorklet.addModule(workletUrl);
 
       const synth = new (WorkletSynthesizer as any)(ctx);

@@ -49,6 +49,12 @@ export default function App() {
         const r = await api.roots();
         setRoots(r);
         if (r.length) setListing(await api.list(r[0].path));
+        if (!window.isSecureContext) {
+          setError(
+            "⚠ HTTPS(보안 컨텍스트)가 아닙니다 — 오디오 재생이 안 될 수 있습니다. " +
+              "HTTPS로 접속하세요. (원격 HTTP는 브라우저가 AudioWorklet을 막습니다)",
+          );
+        }
       } catch (e) {
         setError(String(e));
       }
