@@ -1,24 +1,24 @@
 # UGOS Container Manager — run MIDI Ani Player with NO UPK and NO UGREEN approval.
 #
-# Image: ghcr.io/psmon/midi-ani-player:1.0.0  (GitHub Container Registry)
+# Image: psmon/midiplayer:1.0.0  (Docker Hub — public, no login needed)
+#        https://hub.docker.com/r/psmon/midiplayer
 #
 # Setup on the NAS (Container Manager / Docker):
-#   1. Get the image so it exists locally:
-#      - if the GHCR package is PUBLIC:  docker pull ghcr.io/psmon/midi-ani-player:1.0.0
-#      - if PRIVATE: docker login ghcr.io -u psmon -p <read:packages token>  then pull
-#      - offline:    import dist/midi-ani-player-1.0.0-amd64-image.tar
-#   2. Edit the /music bind mount below to your NAS music shared folder.
+#   1. Pull:  docker pull psmon/midiplayer:1.0.0
+#      (Container Manager: Registry → search "psmon/midiplayer" → download)
+#   2. Edit the /music bind mount below to your NAS music folder
+#      (on the NAS this is a local path, e.g. /volume1/DataA-MEDIA/midi).
 #   3. Create the project from this compose file and start it.
 #   4. Open  http://<NAS-IP>:29090
 services:
   midi-ani-player:
-    image: ghcr.io/psmon/midi-ani-player:1.0.0
+    image: psmon/midiplayer:1.0.0
     container_name: midi-ani-player
     ports:
       - "29090:29090"          # host:container — change host port if needed
     volumes:
       - ./midi-data:/data       # settings.json (persisted)
-      - /volume1/Music:/music:ro   # ← CHANGE to your NAS music folder (read-only)
+      - /volume1/DataA-MEDIA/midi:/music:ro   # ← your NAS music folder (read-only)
     # Multiple folders? add more read-only mounts and set MIDI_ROOTS:
     #   - /volume1/Songs:/music2:ro
     # environment:
