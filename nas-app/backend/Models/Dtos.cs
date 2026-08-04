@@ -32,7 +32,26 @@ public sealed class AppSettings
 
     /// <summary>Whether BitMidi online search is enabled.</summary>
     public bool BitmidiEnabled { get; set; } = true;
+
+    /// <summary>SMB/CIFS shares the app connects to directly (userspace).</summary>
+    public List<SmbShare> SmbShares { get; set; } = new();
 }
+
+/// <summary>An SMB share the app browses directly via SMBLibrary (no OS mount).</summary>
+public sealed class SmbShare
+{
+    /// <summary>Unique display id (used in smb://{Name}/… paths, no slashes).</summary>
+    public string Name { get; set; } = "";
+    public string Host { get; set; } = "";     // 192.168.0.3 or hostname
+    public string Share { get; set; } = "";    // e.g. DataA-MEDIA
+    public string Path { get; set; } = "";     // optional subfolder within the share
+    public string Username { get; set; } = "";
+    public string Password { get; set; } = "";
+    public string Domain { get; set; } = "";
+}
+
+/// <summary>Result of an SMB connection test.</summary>
+public sealed record SmbTestResult(bool Ok);
 
 /// <summary>Generic error body.</summary>
 public sealed record ErrorResponse(string Error);

@@ -64,5 +64,15 @@ public sealed class SettingsStore
         Volume = s.Volume,
         LastSongPath = s.LastSongPath,
         BitmidiEnabled = s.BitmidiEnabled,
+        SmbShares = s.SmbShares.Select(x => new SmbShare
+        {
+            Name = x.Name,
+            Host = x.Host,
+            Share = x.Share,
+            Path = x.Path,
+            Username = x.Username,
+            Password = x.Password,
+            Domain = x.Domain,
+        }).ToList(),
     };
 }

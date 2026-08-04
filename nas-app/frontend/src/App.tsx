@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   volume: 0.9,
   lastSongPath: null,
   bitmidiEnabled: true,
+  smbShares: [],
 };
 
 export default function App() {

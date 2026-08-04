@@ -15,4 +15,14 @@
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SMBLibrary" Version="1.5.7.1" />
+  </ItemGroup>
+
+  <!-- SMBLibrary uses reflection internally; keep it whole so AOT trimming
+       doesn't remove members needed at runtime (IL2104). -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="SMBLibrary" />
+  </ItemGroup>
+
 </Project>

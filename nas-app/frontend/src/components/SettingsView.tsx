@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type AppSettings, type FsListResponse } from "../api/client";
+import { api, type AppSettings, type FsListResponse, type SmbShare } from "../api/client";
 
 interface Props {
   settings: AppSettings;
@@ -7,9 +7,44 @@ interface Props {
   hidden?: boolean;
 }
 
+const EMPTY_SHARE: SmbShare = {
+  name: "",
+  host: "",
+  share: "",
+  path: "",
+  username: "",
+  password: "",
+  domain: "",
+};
+
 export default function SettingsView({ settings, onSave, hidden }: Props) {
   const [explorer, setExplorer] = useState<FsListResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState<SmbShare>(EMPTY_SHARE);
+  const [smbMsg, setSmbMsg] = useState<string | null>(null);
+
+  const addShare = () => {
+    if (!form.name || !form.host || !form.share) {
+      setSmbMsg("이름 · 호스트 · 공유명은 필수입니다.");
+      return;
+    }
+    if (settings.smbShares.some((s) => s.name === form.name)) {
+      setSmbMsg("같은 이름의 공유가 이미 있습니다.");
+      return;
+    }
+    onSave({ ...settings, smbShares: [...settings.smbShares, form] });
+    setForm(EMPTY_SHARE);
+    setSmbMsg("추가됨");
+  };
+
+  const removeShare = (name: string) =>
+    onSave({ ...settings, smbShares: settings.smbShares.filter((s) => s.name !== name) });
+
+  const testShare = async () => {
+    setSmbMsg("연결 테스트 중…");
+    const r = await api.smbTest(form);
+    setSmbMsg(r.ok ? "✓ 연결 성공" : "✗ 연결 실패 (호스트/공유/계정/비번 확인)");
+  };
 
   const openExplorer = async (path?: string) => {
     setErr(null);
@@ -80,6 +115,47 @@ export default function SettingsView({ settings, onSave, hidden }: Props) {
             📂 폴더 찾아보기
           </button>
         )}
+      </section>
+
+      {/* SMB shares */}
+      <section className="setting-block">
+        <h3>SMB 공유 (NAS)</h3>
+        <p className="note">
+          NAS의 SMB 공유를 추가하면 앱이 직접 접속해 재생합니다 (OS 마운트 불필요). 비밀번호는 저장 후 표시되지 않습니다.
+        </p>
+        <ul className="folder-list">
+          {settings.smbShares.map((s) => (
+            <li key={s.name}>
+              <span className="p">
+                {s.name} — \\{s.host}\{s.share}
+                {s.path ? "\\" + s.path : ""} ({s.username})
+              </span>
+              <button className="rm" onClick={() => removeShare(s.name)}>
+                제거
+              </button>
+            </li>
+          ))}
+          {!settings.smbShares.length && <li className="hint">추가된 SMB 공유가 없습니다.</li>}
+        </ul>
+        <div className="smb-form">
+          <input placeholder="이름 (고유)" value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input placeholder="호스트 (예: 192.168.0.3)" value={form.host}
+            onChange={(e) => setForm({ ...form, host: e.target.value })} />
+          <input placeholder="공유명 (예: DataA-MEDIA)" value={form.share}
+            onChange={(e) => setForm({ ...form, share: e.target.value })} />
+          <input placeholder="하위 경로 (예: midi, 선택)" value={form.path}
+            onChange={(e) => setForm({ ...form, path: e.target.value })} />
+          <input placeholder="사용자" value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          <input type="password" placeholder="비밀번호" value={form.password ?? ""}
+            onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        </div>
+        <div className="smb-actions">
+          <button onClick={testShare}>연결 테스트</button>
+          <button className="add" onClick={addShare}>추가</button>
+          {smbMsg && <span className="smb-msg">{smbMsg}</span>}
+        </div>
       </section>
 
       {/* preferences */}

@@ -16,6 +16,8 @@ namespace MidiAniPlayer;
 [JsonSerializable(typeof(FsListResponse))]
 [JsonSerializable(typeof(ScanEntry[]))]
 [JsonSerializable(typeof(AppSettings))]
+[JsonSerializable(typeof(SmbShare))]
+[JsonSerializable(typeof(SmbTestResult))]
 [JsonSerializable(typeof(ErrorResponse))]
 public partial class AppJsonContext : JsonSerializerContext
 {

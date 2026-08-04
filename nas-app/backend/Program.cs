@@ -53,6 +53,8 @@ var settings = new SettingsStore(dataDir);
 // Jail roots = UGOS-authorized shared folders ∪ MIDI_ROOTS ∪ Settings folders.
 var browser = new FileBrowser(() =>
     SharedRoots().Concat(roots).Concat(settings.Get().ScanFolders));
+// SMB shares the owner added in Settings (browsed directly, no OS mount).
+var smb = new SmbBrowser(() => settings.Get().SmbShares);
 var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
 // ---- Static UI (www/) ---------------------------------------------------
@@ -84,11 +86,19 @@ var api = app.MapGroup("/api");
 api.MapGet("/health", () =>
     TypedResults.Ok(new HealthResponse("ok", version, browser.Roots().Select(r => r.Path).ToArray())));
 
-api.MapGet("/fs/roots", () => TypedResults.Ok(browser.Roots()));
+api.MapGet("/fs/roots", () =>
+    TypedResults.Ok(browser.Roots().Concat(smb.Roots()).ToArray()));
 
 api.MapGet("/fs/list", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (string? path) =>
 {
-    // No path → the first root (or nothing configured).
+    if (SmbBrowser.IsSmb(path))
+    {
+        var smbResult = smb.List(path!);
+        return smbResult is null
+            ? TypedResults.NotFound(new ErrorResponse("smb path not found"))
+            : TypedResults.Ok(smbResult);
+    }
+    // No path → the first local root (or nothing configured).
     var target = string.IsNullOrWhiteSpace(path)
         ? browser.Roots().FirstOrDefault()?.Path
         : path;
@@ -109,15 +119,22 @@ api.MapGet("/fs/explore", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (
 
 api.MapGet("/fs/scan", Results<Ok<ScanEntry[]>, NotFound<ErrorResponse>> (string? path) =>
 {
-    var result = browser.Scan(path);
+    var result = SmbBrowser.IsSmb(path) ? smb.Scan(path!) : browser.Scan(path);
     return result is null
         ? TypedResults.NotFound(new ErrorResponse("path not allowed or not found"))
         : TypedResults.Ok(result);
 });
 
-// Stream a MIDI file (validated to live under a root, byte-range enabled).
+// Stream a MIDI file. SMB files are read into memory; local files stream.
 api.MapGet("/stream", (string? path) =>
 {
+    if (SmbBrowser.IsSmb(path))
+    {
+        var bytes = smb.ReadFile(path!);
+        return bytes is null
+            ? Results.NotFound(new ErrorResponse("smb file not allowed or not found"))
+            : Results.Bytes(bytes, "audio/midi");
+    }
     var real = browser.ResolveMidiFile(path);
     if (real is null)
         return Results.NotFound(new ErrorResponse("file not allowed or not found"));
@@ -125,8 +142,14 @@ api.MapGet("/stream", (string? path) =>
     return Results.Stream(stream, "audio/midi", enableRangeProcessing: true);
 });
 
-// Settings
-api.MapGet("/settings", () => TypedResults.Ok(settings.Get()));
+// Settings. Passwords are never sent to the client; a blank incoming password
+// means "keep the stored one".
+api.MapGet("/settings", () =>
+{
+    var s = settings.Get();
+    foreach (var sh in s.SmbShares) sh.Password = "";
+    return TypedResults.Ok(s);
+});
 api.MapPut("/settings", (AppSettings incoming) =>
 {
     // Scan folders become jail roots, so keep only real, existing directories.
@@ -136,7 +159,25 @@ api.MapPut("/settings", (AppSettings incoming) =>
         .Select(f => f!)
         .Distinct()
         .ToList();
-    return TypedResults.Ok(settings.Save(incoming));
+    // Preserve stored SMB passwords when the client sends a blank one.
+    var existing = settings.Get().SmbShares;
+    foreach (var sh in incoming.SmbShares)
+    {
+        if (string.IsNullOrEmpty(sh.Password))
+            sh.Password = existing.FirstOrDefault(e => e.Name == sh.Name)?.Password ?? "";
+    }
+    var saved = settings.Save(incoming);
+    foreach (var sh in saved.SmbShares) sh.Password = "";
+    return TypedResults.Ok(saved);
+});
+
+// Test an SMB connection (Settings "test" button). Password may be blank to
+// reuse a stored one for an existing share name.
+api.MapPost("/smb/test", (SmbShare share) =>
+{
+    if (string.IsNullOrEmpty(share.Password))
+        share.Password = settings.Get().SmbShares.FirstOrDefault(e => e.Name == share.Name)?.Password ?? "";
+    return TypedResults.Ok(new SmbTestResult(smb.TestConnection(share)));
 });
 
 // ---- BitMidi proxy (avoids browser CORS; still needs NAS internet) -------

@@ -25,12 +25,23 @@ export interface ScanEntry {
   size: number;
 }
 
+export interface SmbShare {
+  name: string;
+  host: string;
+  share: string;
+  path: string;
+  username: string;
+  password?: string; // blank when returned by the server; blank on save = keep
+  domain?: string;
+}
+
 export interface AppSettings {
   scanFolders: string[];
   defaultEngine: string;
   volume: number;
   lastSongPath: string | null;
   bitmidiEnabled: boolean;
+  smbShares: SmbShare[];
 }
 
 export interface Health {
@@ -91,6 +102,21 @@ export const api = {
 
   /** Bundled, pre-categorized BitMidi catalog (browse by genre, no files needed). */
   bitmidiCatalog: () => getJson<BitmidiCatalogEntry[]>("/bitmidi.json"),
+
+  /** Test an SMB connection (Settings). Blank password reuses a stored one. */
+  smbTest: async (s: SmbShare): Promise<{ ok: boolean }> => {
+    try {
+      const res = await fetch("/api/smb/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(s),
+      });
+      if (!res.ok) return { ok: false };
+      return (await res.json()) as { ok: boolean };
+    } catch {
+      return { ok: false };
+    }
+  },
 };
 
 interface BitmidiRow {
