@@ -88,6 +88,9 @@ export const api = {
 
   /** URL to stream a BitMidi file through the backend proxy. */
   bitmidiFileUrl: (url: string) => `/api/bitmidi/file?url=${encodeURIComponent(url)}`,
+
+  /** Bundled, pre-categorized BitMidi catalog (browse by genre, no files needed). */
+  bitmidiCatalog: () => getJson<BitmidiCatalogEntry[]>("/bitmidi.json"),
 };
 
 interface BitmidiRow {
@@ -99,3 +102,22 @@ export interface BitmidiResult {
   title: string;
   url: string;
 }
+
+export interface BitmidiCatalogEntry {
+  title: string;
+  genre: string;
+  url: string;
+}
+
+/** Genre tabs for the bundled catalog ("전체" = all). */
+export const BITMIDI_GENRES = [
+  "전체",
+  "인기",
+  "게임",
+  "영화",
+  "애니",
+  "팝록",
+  "클래식",
+  "재즈",
+  "캐럴",
+];

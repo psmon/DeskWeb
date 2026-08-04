@@ -4,8 +4,11 @@
 # (Run scripts/build-docker.sh amd64 first to produce the binary + www.)
 FROM debian:12-slim
 
+# libssl3 + ca-certificates are REQUIRED for outbound HTTPS (BitMidi proxy);
+# without them .NET HttpClient crashes ("No usable version of libssl"). zlib1g
+# is needed by the AOT runtime.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends zlib1g \
+ && apt-get install -y --no-install-recommends zlib1g libssl3 ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -r -u 10001 -m -d /home/app app
 

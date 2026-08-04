@@ -1,5 +1,13 @@
-import { lazy, Suspense, useState, type RefObject } from "react";
-import { api, type BitmidiResult, type FsListResponse, type FsRoot, type ScanEntry } from "../api/client";
+import { lazy, Suspense, useEffect, useState, type RefObject } from "react";
+import {
+  api,
+  BITMIDI_GENRES,
+  type BitmidiCatalogEntry,
+  type BitmidiResult,
+  type FsListResponse,
+  type FsRoot,
+  type ScanEntry,
+} from "../api/client";
 
 // html-midi-player bundles magenta+tone (~2MB) — load it only when the score
 // view is actually opened, keeping the initial bundle small.
@@ -31,6 +39,18 @@ export default function PlayerView(props: Props) {
   const [results, setResults] = useState<BitmidiResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<BitmidiCatalogEntry[]>([]);
+  const [genre, setGenre] = useState("전체");
+
+  // Load the bundled catalog the first time the BitMidi tab is opened.
+  useEffect(() => {
+    if (source === "bitmidi" && !catalog.length) {
+      api.bitmidiCatalog().then(setCatalog).catch(() => {});
+    }
+  }, [source, catalog.length]);
+
+  const browsing = !q.trim();
+  const browseList = catalog.filter((e) => genre === "전체" || e.genre === genre);
 
   const doSearch = async () => {
     if (!q.trim()) return;
@@ -118,11 +138,11 @@ export default function PlayerView(props: Props) {
           </>
         ) : (
           <section className="bitmidi">
-            <h3>BitMidi 온라인 검색</h3>
+            <h3>BitMidi 온라인 {browsing ? `간편재생 (${catalog.length})` : "검색"}</h3>
             <div className="search">
               <input
                 value={q}
-                placeholder="곡 제목 검색…"
+                placeholder="곡 제목 검색… (전체 라이브러리)"
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && doSearch()}
               />
@@ -130,19 +150,44 @@ export default function PlayerView(props: Props) {
                 {searching ? "…" : "🔎"}
               </button>
             </div>
+            {browsing && (
+              <div className="bm-genres">
+                {BITMIDI_GENRES.map((g) => (
+                  <button
+                    key={g}
+                    className={genre === g ? "on" : ""}
+                    onClick={() => setGenre(g)}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
             {searchErr && <div className="error">{searchErr}</div>}
             <ul className="songs">
-              {results.map((r) => (
-                <li
-                  key={r.url}
-                  className={nowPath === r.url ? "active" : ""}
-                  onClick={() => props.onPlayBitmidi(r.title, r.url)}
-                >
-                  <span className="t">{r.title}</span>
-                </li>
-              ))}
-              {!results.length && !searching && (
-                <li className="hint">검색어를 입력하세요 (인터넷 필요).</li>
+              {browsing
+                ? browseList.slice(0, 600).map((e) => (
+                    <li
+                      key={e.url}
+                      className={nowPath === e.url ? "active" : ""}
+                      onClick={() => props.onPlayBitmidi(e.title, e.url)}
+                    >
+                      <span className="t">{e.title}</span>
+                      <span className="f">{e.genre}</span>
+                    </li>
+                  ))
+                : results.map((r) => (
+                    <li
+                      key={r.url}
+                      className={nowPath === r.url ? "active" : ""}
+                      onClick={() => props.onPlayBitmidi(r.title, r.url)}
+                    >
+                      <span className="t">{r.title}</span>
+                    </li>
+                  ))}
+              {browsing && !catalog.length && <li className="hint">카탈로그 로딩…</li>}
+              {!browsing && !results.length && !searching && (
+                <li className="hint">검색 결과 없음 (인터넷 필요).</li>
               )}
             </ul>
           </section>

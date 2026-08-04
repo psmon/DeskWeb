@@ -422,6 +422,26 @@ select {
   border-radius: 6px;
   padding: 6px 8px;
 }
+.bm-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.bm-genres button {
+  padding: 3px 8px;
+  font-size: 12px;
+  background: #2a2a3a;
+  color: var(--muted);
+}
+.bm-genres button.on {
+  background: var(--accent);
+  color: #fff;
+}
+.score-status {
+  color: var(--accent2);
+  font-style: normal;
+}
 .np .fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
