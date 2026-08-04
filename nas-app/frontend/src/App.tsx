@@ -1,40 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type FsListResponse, type FsRoot, type ScanEntry } from "./api/client";
+import { api, type AppSettings, type FsListResponse, type FsRoot, type ScanEntry } from "./api/client";
 import { RealEngine } from "./engines/realEngine";
+import { BandStage } from "./engines/bandStage";
+import PlayerView from "./components/PlayerView";
+import SettingsView from "./components/SettingsView";
 
-// Milestone 0 walking skeleton: browse a NAS folder, scan for MIDI files, and
-// play a selected file through the local SpessaSynth (real) engine. Band
-// animation, score view, jukebox skin, BitMidi and settings UI come next.
-
-interface NowPlaying {
-  title: string;
-  path: string;
-}
+const DEFAULT_SETTINGS: AppSettings = {
+  scanFolders: [],
+  defaultEngine: "real",
+  volume: 0.9,
+  lastSongPath: null,
+  bitmidiEnabled: true,
+};
 
 export default function App() {
   const engineRef = useRef<RealEngine | null>(null);
+  const bandRef = useRef<BandStage | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const volumeRef = useRef(0.9);
 
+  const [view, setView] = useState<"player" | "settings">("player");
   const [version, setVersion] = useState("");
   const [roots, setRoots] = useState<FsRoot[]>([]);
   const [listing, setListing] = useState<FsListResponse | null>(null);
   const [songs, setSongs] = useState<ScanEntry[]>([]);
-  const [now, setNow] = useState<NowPlaying | null>(null);
+  const [now, setNow] = useState<{ title: string; path: string } | null>(null);
   const [paused, setPaused] = useState(true);
   const [volume, setVolume] = useState(0.9);
   const [progress, setProgress] = useState({ t: 0, d: 0 });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // ---- boot: health + roots + first listing --------------------------------
+  volumeRef.current = volume;
+
+  // ---- boot -----------------------------------------------------------------
   useEffect(() => {
     (async () => {
       try {
         const h = await api.health();
         setVersion(h.version);
+        const s = await api.settings();
+        setSettings(s);
+        setVolume(s.volume);
         const r = await api.roots();
         setRoots(r);
         if (r.length) setListing(await api.list(r[0].path));
-        else setError("설정된 접근 폴더(MIDI_ROOTS)가 없습니다.");
       } catch (e) {
         setError(String(e));
       }
@@ -44,7 +55,20 @@ export default function App() {
     };
   }, []);
 
-  // ---- progress ticker -----------------------------------------------------
+  // ---- band stage (created once the canvas is mounted) ----------------------
+  useEffect(() => {
+    if (canvasRef.current && !bandRef.current) {
+      bandRef.current = new BandStage(canvasRef.current);
+      bandRef.current.start();
+      (window as unknown as { __band?: BandStage }).__band = bandRef.current;
+    }
+    return () => {
+      bandRef.current?.dispose();
+      bandRef.current = null;
+    };
+  }, []);
+
+  // ---- transport clock ------------------------------------------------------
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -59,12 +83,13 @@ export default function App() {
   const engine = useCallback(() => {
     if (!engineRef.current) {
       engineRef.current = new RealEngine({
+        onNote: (e) => bandRef.current?.onNote(e),
         onEnded: () => setPaused(true),
       });
-      engineRef.current.setVolume(volume);
+      engineRef.current.setVolume(volumeRef.current);
     }
     return engineRef.current;
-  }, [volume]);
+  }, []);
 
   const navigate = useCallback(async (path: string) => {
     setError(null);
@@ -88,7 +113,7 @@ export default function App() {
     }
   }, [listing]);
 
-  const playPath = useCallback(
+  const play = useCallback(
     async (title: string, path: string) => {
       setError(null);
       setBusy(true);
@@ -96,6 +121,8 @@ export default function App() {
         const res = await fetch(api.streamUrl(path));
         if (!res.ok) throw new Error(`stream ${res.status}`);
         const buf = await res.arrayBuffer();
+        bandRef.current?.reset();
+        bandRef.current?.setSong(title);
         await engine().play(buf, title);
         setNow({ title, path });
         setPaused(false);
@@ -120,81 +147,58 @@ export default function App() {
     }
   }, [now]);
 
-  const onVolume = useCallback((v: number) => {
+  const changeVolume = useCallback((v: number) => {
     setVolume(v);
     engineRef.current?.setVolume(v);
   }, []);
+
+  const saveSettings = useCallback(async (s: AppSettings) => {
+    setError(null);
+    try {
+      const saved = await api.saveSettings(s);
+      setSettings(saved);
+      changeVolume(saved.volume);
+      const r = await api.roots();
+      setRoots(r);
+      setListing(r.length ? await api.list(r[0].path) : null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [changeVolume]);
 
   return (
     <div className="app">
       <header className="topbar">
         <span className="logo">🎵 MIDI Ani Player</span>
-        <span className="ver">v{version || "…"} · walking skeleton</span>
+        <nav className="tabs">
+          <button className={view === "player" ? "on" : ""} onClick={() => setView("player")}>
+            ▶ 재생
+          </button>
+          <button className={view === "settings" ? "on" : ""} onClick={() => setView("settings")}>
+            ⚙ 설정
+          </button>
+        </nav>
+        <span className="ver">v{version || "…"}</span>
       </header>
 
       {error && <div className="error">{error}</div>}
 
-      <div className="cols">
-        {/* Left: folder browser */}
-        <section className="panel browser">
-          <h3>NAS 폴더</h3>
-          <div className="roots">
-            {roots.map((r) => (
-              <button key={r.path} onClick={() => navigate(r.path)}>
-                📁 {r.name}
-              </button>
-            ))}
-          </div>
-          {listing && (
-            <>
-              <div className="crumb" title={listing.path}>
-                {listing.path}
-              </div>
-              <ul className="entries">
-                {listing.parent && (
-                  <li>
-                    <button onClick={() => navigate(listing.parent!)}>⬆ ..</button>
-                  </li>
-                )}
-                {listing.entries.map((e) =>
-                  e.type === "dir" ? (
-                    <li key={e.path}>
-                      <button onClick={() => navigate(e.path)}>📁 {e.name}</button>
-                    </li>
-                  ) : (
-                    <li key={e.path}>
-                      <button onClick={() => playPath(e.name, e.path)}>🎼 {e.name}</button>
-                    </li>
-                  ),
-                )}
-              </ul>
-              <button className="scan" onClick={scan} disabled={busy}>
-                {busy ? "…" : "🔎 이 폴더 스캔"}
-              </button>
-            </>
-          )}
-        </section>
+      <main className="body">
+        <PlayerView
+          hidden={view !== "player"}
+          roots={roots}
+          listing={listing}
+          songs={songs}
+          nowPath={now?.path ?? null}
+          busy={busy}
+          bandCanvasRef={canvasRef}
+          onNavigate={navigate}
+          onScan={scan}
+          onPlay={play}
+        />
+        <SettingsView hidden={view !== "settings"} settings={settings} onSave={saveSettings} />
+      </main>
 
-        {/* Right: scanned library */}
-        <section className="panel library">
-          <h3>라이브러리 {songs.length ? `(${songs.length})` : ""}</h3>
-          <ul className="songs">
-            {songs.map((s) => (
-              <li
-                key={s.path}
-                className={now?.path === s.path ? "active" : ""}
-                onClick={() => playPath(s.title, s.path)}
-              >
-                <span className="t">{s.title}</span>
-                <span className="f">{s.folder}</span>
-              </li>
-            ))}
-            {!songs.length && <li className="hint">폴더를 스캔하면 곡이 여기 나타납니다.</li>}
-          </ul>
-        </section>
-      </div>
-
-      {/* Transport */}
       <footer className="transport">
         <button className="play" onClick={togglePlay} disabled={!now}>
           {paused ? "▶" : "⏸"}
@@ -219,7 +223,7 @@ export default function App() {
             max={1}
             step={0.01}
             value={volume}
-            onChange={(e) => onVolume(Number(e.target.value))}
+            onChange={(e) => changeVolume(Number(e.target.value))}
           />
         </label>
       </footer>

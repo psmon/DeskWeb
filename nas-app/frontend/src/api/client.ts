@@ -52,6 +52,10 @@ export const api = {
     getJson<FsListResponse>(
       "/api/fs/list" + (path ? `?path=${encodeURIComponent(path)}` : ""),
     ),
+  explore: (path?: string) =>
+    getJson<FsListResponse>(
+      "/api/fs/explore" + (path ? `?path=${encodeURIComponent(path)}` : ""),
+    ),
   scan: (path: string) =>
     getJson<ScanEntry[]>(`/api/fs/scan?path=${encodeURIComponent(path)}`),
   settings: () => getJson<AppSettings>("/api/settings"),

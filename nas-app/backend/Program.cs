@@ -38,8 +38,9 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
 
-var browser = new FileBrowser(roots);
 var settings = new SettingsStore(dataDir);
+// Jail roots = admin-configured MIDI_ROOTS ∪ folders the owner added in Settings.
+var browser = new FileBrowser(() => roots.Concat(settings.Get().ScanFolders));
 var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
 // ---- Static UI (www/) ---------------------------------------------------
@@ -85,6 +86,15 @@ api.MapGet("/fs/list", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (str
         : TypedResults.Ok(result);
 });
 
+// Directory-only picker to choose new root folders (empty path → top-level).
+api.MapGet("/fs/explore", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (string? path) =>
+{
+    var result = browser.Explore(path);
+    return result is null
+        ? TypedResults.NotFound(new ErrorResponse("path not found"))
+        : TypedResults.Ok(result);
+});
+
 api.MapGet("/fs/scan", Results<Ok<ScanEntry[]>, NotFound<ErrorResponse>> (string? path) =>
 {
     var result = browser.Scan(path);
@@ -107,10 +117,11 @@ api.MapGet("/stream", (string? path) =>
 api.MapGet("/settings", () => TypedResults.Ok(settings.Get()));
 api.MapPut("/settings", (AppSettings incoming) =>
 {
-    // Keep only scan folders that resolve inside the jail.
+    // Scan folders become jail roots, so keep only real, existing directories.
     incoming.ScanFolders = incoming.ScanFolders
-        .Where(f => browser.Resolve(f) is not null)
-        .Select(f => browser.Resolve(f)!)
+        .Select(f => browser.CanonicalDir(f))
+        .Where(f => f is not null)
+        .Select(f => f!)
         .Distinct()
         .ToList();
     return TypedResults.Ok(settings.Save(incoming));
