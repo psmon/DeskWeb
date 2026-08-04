@@ -20,6 +20,8 @@ export default function App() {
   const volumeRef = useRef(0.9);
 
   const [view, setView] = useState<"player" | "settings">("player");
+  const [scoreOn, setScoreOn] = useState(false);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [version, setVersion] = useState("");
   const [roots, setRoots] = useState<FsRoot[]>([]);
   const [listing, setListing] = useState<FsListResponse | null>(null);
@@ -80,6 +82,8 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const getTime = useCallback(() => engineRef.current?.currentTime ?? 0, []);
+
   const engine = useCallback(() => {
     if (!engineRef.current) {
       engineRef.current = new RealEngine({
@@ -123,6 +127,7 @@ export default function App() {
         const buf = await res.arrayBuffer();
         bandRef.current?.reset();
         bandRef.current?.setSong(title);
+        setStreamUrl(api.streamUrl(path));
         await engine().play(buf, title);
         setNow({ title, path });
         setPaused(false);
@@ -145,6 +150,7 @@ export default function App() {
         const buf = await res.arrayBuffer();
         bandRef.current?.reset();
         bandRef.current?.setSong(title);
+        setStreamUrl(api.bitmidiFileUrl(url));
         await engine().play(buf, title);
         setNow({ title, path: url });
         setPaused(false);
@@ -208,6 +214,11 @@ export default function App() {
             ⚙ 설정
           </button>
         </nav>
+        {view === "player" && (
+          <button className={"scoretoggle " + (scoreOn ? "on" : "")} onClick={() => setScoreOn((v) => !v)}>
+            🎼 악보보기
+          </button>
+        )}
         <span className="ver">v{version || "…"}</span>
       </header>
 
@@ -226,6 +237,9 @@ export default function App() {
           onScan={scan}
           onPlay={play}
           onPlayBitmidi={playBitmidi}
+          scoreOn={scoreOn}
+          streamUrl={streamUrl}
+          getTime={getTime}
         />
         <SettingsView hidden={view !== "settings"} settings={settings} onSave={saveSettings} />
       </main>

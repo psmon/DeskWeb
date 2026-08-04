@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "html-midi-player": "^1.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "spessasynth_lib": "4.3.11",

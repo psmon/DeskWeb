@@ -1,5 +1,9 @@
-import { useState, type RefObject } from "react";
+import { lazy, Suspense, useState, type RefObject } from "react";
 import { api, type BitmidiResult, type FsListResponse, type FsRoot, type ScanEntry } from "../api/client";
+
+// html-midi-player bundles magenta+tone (~2MB) — load it only when the score
+// view is actually opened, keeping the initial bundle small.
+const ScoreView = lazy(() => import("./ScoreView"));
 
 interface Props {
   roots: FsRoot[];
@@ -12,6 +16,9 @@ interface Props {
   onScan: () => void;
   onPlay: (title: string, path: string) => void;
   onPlayBitmidi: (title: string, url: string) => void;
+  scoreOn: boolean;
+  streamUrl: string | null;
+  getTime: () => number;
   hidden?: boolean;
 }
 
@@ -144,6 +151,11 @@ export default function PlayerView(props: Props) {
 
       <div className="stage">
         <canvas ref={bandCanvasRef} className="band-canvas" />
+        {props.scoreOn && (
+          <Suspense fallback={<div className="score-panel">악보 로딩…</div>}>
+            <ScoreView visible={true} streamUrl={props.streamUrl} getTime={props.getTime} />
+          </Suspense>
+        )}
       </div>
     </div>
   );
