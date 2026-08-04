@@ -1,0 +1,12 @@
+{
+  "$schema": "kakashi-harness",
+  "$schemaVersion": "1.0.0",
+  "name": "DeskWeb Harness",
+  "description": "qooxdoo 기반 웹 데스크톱(DeskWeb) 품질 관리 하네스",
+  "version": "1.0.1",
+  "agents": ["tamer"],
+  "engine": [],
+  "knowledge": ["nas-app-deployment"],
+  "created": "2026-07-24",
+  "lastUpdated": "2026-08-05"
+}
