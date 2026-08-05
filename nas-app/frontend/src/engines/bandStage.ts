@@ -118,6 +118,11 @@ export class BandStage {
     return this.order.length;
   }
 
+  /** Active ripple count (diagnostics/tests). */
+  get rippleCount(): number {
+    return this.ripples.length;
+  }
+
   /** Pitch classes (0–11) heard recently — the current chord/harmony to snap to. */
   chordClasses(windowMs = 2600): number[] {
     const now = performance.now();

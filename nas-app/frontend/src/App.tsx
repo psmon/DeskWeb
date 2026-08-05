@@ -105,8 +105,9 @@ export default function App() {
       (window as unknown as { __band?: BandStage }).__band = bandRef.current;
     }
     // Tap the stage to lay down a beat: left half = basic drum kit, right half =
-    // DJ / FX hits. Position picks the drum; a colored sound-wave marks the hit.
-    const onClick = (ev: MouseEvent) => {
+    // DJ / FX. Uses pointerdown so EACH finger fires its own event → true
+    // multi-touch (two fingers = two simultaneous drums at two positions).
+    const onPointer = (ev: PointerEvent) => {
       const band = bandRef.current;
       const eng = engineRef.current;
       if (!band || !canvas) return;
@@ -117,9 +118,9 @@ export default function App() {
       eng?.playDrum(drumForClick(x, y, canvas.width, canvas.height));
       band.addRipple(x, y, leftHalf ? 195 : 315);
     };
-    canvas?.addEventListener("click", onClick);
+    canvas?.addEventListener("pointerdown", onPointer);
     return () => {
-      canvas?.removeEventListener("click", onClick);
+      canvas?.removeEventListener("pointerdown", onPointer);
       bandRef.current?.dispose();
       bandRef.current = null;
     };
