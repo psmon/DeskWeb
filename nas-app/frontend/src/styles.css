@@ -227,12 +227,34 @@ button:disabled {
 .score-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: 8px;
+  position: relative;
+  overflow: hidden;
+  background: #fafafa;
+}
+.score-stack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transition: transform 0.45s cubic-bezier(0.25, 0.1, 0.25, 1);
+  will-change: transform;
+}
+.score-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #e6e6e6;
+  background: #fafafa;
+}
+.score-row.current {
+  background: #fff;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .score-vis {
   display: block;
   width: 100%;
+  height: 100%;
 }
 .score-vis .active {
   fill: #e8451e;
