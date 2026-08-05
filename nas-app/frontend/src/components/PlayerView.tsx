@@ -101,9 +101,22 @@ export default function PlayerView(props: Props) {
   const bmItems = (list: { title: string; url: string }[]): PlayItem[] =>
     list.map((x) => ({ title: x.title, id: x.url, kind: "bitmidi" }));
 
+  // On mobile, selecting a track collapses the list so the band becomes the main
+  // view (YouTube-Music style). Desktop keeps the list open.
+  const selectPlay = (items: PlayItem[], index: number) => {
+    props.onPlayQueue(items, index);
+    if (window.matchMedia("(max-width: 700px)").matches) setSidebarOpen(false);
+  };
+
   return (
     <div className="playerview" hidden={props.hidden}>
-      <aside className="sidecol" style={{ width: sidebarOpen ? sidebarWidth : 0 }}>
+      <aside
+        className={"sidecol" + (sidebarOpen ? " open" : "")}
+        style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+      >
+        <button className="sidecol-close" onClick={() => setSidebarOpen(false)}>
+          연주 보기 ▶
+        </button>
         <div className="source-switch">
           <button className={source === "bitmidi" ? "on" : ""} onClick={() => setSource("bitmidi")}>
             🎧 BitMidi
@@ -146,7 +159,7 @@ export default function PlayerView(props: Props) {
                           <button
                             onClick={() => {
                               const files = listing.entries.filter((x) => x.type === "file");
-                              props.onPlayQueue(
+                              selectPlay(
                                 localItems(files.map((f) => ({ title: f.name, path: f.path }))),
                                 files.findIndex((f) => f.path === e.path),
                               );
@@ -172,7 +185,7 @@ export default function PlayerView(props: Props) {
                   <li
                     key={s.path}
                     className={nowPath === s.path ? "active" : ""}
-                    onClick={() => props.onPlayQueue(localItems(songs), i)}
+                    onClick={() => selectPlay(localItems(songs), i)}
                   >
                     <span className="t">{s.title}</span>
                     <span className="f">{s.folder}</span>
@@ -211,7 +224,7 @@ export default function PlayerView(props: Props) {
                 <li
                   key={e.url}
                   className={nowPath === e.url ? "active" : ""}
-                  onClick={() => props.onPlayQueue(bmItems(bmShown), i)}
+                  onClick={() => selectPlay(bmItems(bmShown), i)}
                 >
                   <span className="t">{e.title}</span>
                   {"genre" in e && <span className="f">{(e as BitmidiCatalogEntry).genre}</span>}
@@ -239,7 +252,7 @@ export default function PlayerView(props: Props) {
           title="목록 접기/펼치기"
           onClick={() => setSidebarOpen((o) => !o)}
         >
-          {sidebarOpen ? "◀" : "▶"}
+          {sidebarOpen ? "◀" : "☰ 목록"}
         </button>
         <canvas ref={bandCanvasRef} className="band-canvas" />
         {props.scoreOn && (
