@@ -32,7 +32,9 @@ interface Props {
 
 export default function PlayerView(props: Props) {
   const { roots, listing, songs, nowPath, busy, bandCanvasRef } = props;
-  const [source, setSource] = useState<"local" | "bitmidi">("local");
+  // BitMidi is the default — anyone can play immediately with no setup; users
+  // switch to "내 MIDI" only when they want their own files.
+  const [source, setSource] = useState<"local" | "bitmidi">("bitmidi");
 
   // BitMidi search state (self-contained)
   const [q, setQ] = useState("");
@@ -69,11 +71,11 @@ export default function PlayerView(props: Props) {
     <div className="playerview" hidden={props.hidden}>
       <aside className="sidecol">
         <div className="source-switch">
-          <button className={source === "local" ? "on" : ""} onClick={() => setSource("local")}>
-            내 라이브러리
-          </button>
           <button className={source === "bitmidi" ? "on" : ""} onClick={() => setSource("bitmidi")}>
-            BitMidi
+            🎧 BitMidi
+          </button>
+          <button className={source === "local" ? "on" : ""} onClick={() => setSource("local")}>
+            내 MIDI
           </button>
         </div>
 
