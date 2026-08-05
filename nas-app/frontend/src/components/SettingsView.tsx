@@ -144,11 +144,11 @@ export default function SettingsView({ settings, onSave, hidden }: Props) {
         <div className="smb-form">
           <input placeholder="이름 (고유)" value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input placeholder="호스트 (예: 192.168.0.3)" value={form.host}
+          <input placeholder="호스트 (예: 192.168.x.x)" value={form.host}
             onChange={(e) => setForm({ ...form, host: e.target.value })} />
-          <input placeholder="공유명 (예: DataA-MEDIA)" value={form.share}
+          <input placeholder="공유명 (예: MEDIA)" value={form.share}
             onChange={(e) => setForm({ ...form, share: e.target.value })} />
-          <input placeholder="하위 경로 (예: midi, 선택)" value={form.path}
+          <input placeholder="하위 경로 (예: music · 선택)" value={form.path}
             onChange={(e) => setForm({ ...form, path: e.target.value })} />
           <input placeholder="사용자" value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })} />
