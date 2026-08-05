@@ -71,8 +71,12 @@ export default function SettingsView({ settings, onSave, hidden }: Props) {
 
       {/* scan folders */}
       <section className="setting-block">
-        <h3>스캔 폴더 (NAS)</h3>
-        <p className="note">여기 추가한 폴더가 재생 라이브러리의 접근 경로가 됩니다.</p>
+        <h3>스캔 폴더</h3>
+        <p className="note">
+          접근 허용된 폴더 <b>안에서만</b> 선택됩니다 (상위 폴더는 탐색 불가).
+          접근 허용 폴더는: <b>Docker</b> = 컨테이너에 마운트한 경로(`/music` 등),
+          <b> UGOS</b> = App Center 앱 설정에서 인가한 NAS 공유/사용자 폴더.
+        </p>
         <ul className="folder-list">
           {settings.scanFolders.map((f) => (
             <li key={f}>

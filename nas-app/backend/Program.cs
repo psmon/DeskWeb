@@ -19,12 +19,18 @@ var dataDir = Environment.GetEnvironmentVariable("UGAPP_DATA_DIR")
               ?? Directory.GetCurrentDirectory();
 Directory.CreateDirectory(dataDir);
 
-// Admin/dev-configured extra roots (semicolon-separated). Dev falls back to
-// data/music so there is always a writable place to drop files.
+// Access roots resolution (the browsable/jail boundary):
+//   - MIDI_ROOTS set (Docker mounts / dev)      → use it.
+//   - else on UGOS ($UGAPP_SHARED_DIR present)   → none here; SharedRoots() below
+//       provides the user-authorized folders (never the app's own data dir).
+//   - else bare standalone                        → data/music fallback.
 var rootsRaw = Environment.GetEnvironmentVariable("MIDI_ROOTS");
-var roots = string.IsNullOrWhiteSpace(rootsRaw)
-    ? new[] { Path.Combine(dataDir, "music") }
-    : rootsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+var onUgos = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("UGAPP_SHARED_DIR"));
+var roots = !string.IsNullOrWhiteSpace(rootsRaw)
+    ? rootsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    : onUgos
+        ? Array.Empty<string>()
+        : new[] { Path.Combine(dataDir, "music") };
 foreach (var r in roots)
 {
     try { Directory.CreateDirectory(r); } catch { /* mount may be read-only */ }
@@ -50,9 +56,14 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 var app = builder.Build();
 
 var settings = new SettingsStore(dataDir);
-// Jail roots = UGOS-authorized shared folders ∪ MIDI_ROOTS ∪ Settings folders.
-var browser = new FileBrowser(() =>
-    SharedRoots().Concat(roots).Concat(settings.Get().ScanFolders));
+// Base roots = the actual access grants: UGOS-authorized shared folders ($UGAPP_SHARED_DIR)
+// ∪ MIDI_ROOTS (Docker mounts). These define the security boundary — nothing outside
+// them is ever browsable. The folder picker and scan-folder validation use ONLY these.
+Func<IEnumerable<string>> baseRootsFn = () => SharedRoots().Concat(roots);
+var baseBrowser = new FileBrowser(baseRootsFn);
+// Full jail also includes the user's picked scan folders (each validated to be under a
+// base root on save, so they never widen access — just remembered browse locations).
+var browser = new FileBrowser(() => baseRootsFn().Concat(settings.Get().ScanFolders));
 // SMB shares the owner added in Settings (browsed directly, no OS mount).
 var smb = new SmbBrowser(() => settings.Get().SmbShares);
 var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
@@ -108,12 +119,13 @@ api.MapGet("/fs/list", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (str
         : TypedResults.Ok(result);
 });
 
-// Directory-only picker to choose new root folders (empty path → top-level).
+// Directory-only picker — JAILED to base roots (mounts / UGOS-authorized folders).
+// Empty path → the roots themselves; never the filesystem root or anything above.
 api.MapGet("/fs/explore", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (string? path) =>
 {
-    var result = browser.Explore(path);
+    var result = baseBrowser.Explore(path);
     return result is null
-        ? TypedResults.NotFound(new ErrorResponse("path not found"))
+        ? TypedResults.NotFound(new ErrorResponse("path not allowed or not found"))
         : TypedResults.Ok(result);
 });
 
@@ -152,9 +164,10 @@ api.MapGet("/settings", () =>
 });
 api.MapPut("/settings", (AppSettings incoming) =>
 {
-    // Scan folders become jail roots, so keep only real, existing directories.
+    // Scan folders must resolve UNDER a base root — they can never widen access
+    // to an arbitrary path (defense in depth against a crafted settings PUT).
     incoming.ScanFolders = incoming.ScanFolders
-        .Select(f => browser.CanonicalDir(f))
+        .Select(f => baseBrowser.Resolve(f))
         .Where(f => f is not null)
         .Select(f => f!)
         .Distinct()

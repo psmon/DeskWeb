@@ -75,17 +75,22 @@ public sealed class FileBrowser
     }
 
     /// <summary>
-    /// Directory-only picker for choosing new roots. NOT jailed — used to browse
-    /// the filesystem to locate a folder to add. Never streams files. When
-    /// <paramref name="requested"/> is empty, returns the system's top-level
-    /// locations (drives on Windows; /volume* or / on Linux).
+    /// Directory-only picker, JAILED to the allowed roots. Empty path returns the
+    /// roots themselves (mounts / UGOS-authorized shares) — never the filesystem
+    /// root, drives, or anything above a root. This is the security boundary: the
+    /// picker can only ever show mounted/authorized folders and their subfolders.
     /// </summary>
     public FsListResponse? Explore(string? requested)
     {
         if (string.IsNullOrWhiteSpace(requested))
-            return new FsListResponse("", null, TopLevel());
+        {
+            var rootEntries = CurrentRoots()
+                .Select(r => new FsEntry(DisplayName(r), r, "dir", 0))
+                .ToArray();
+            return new FsListResponse("", null, rootEntries);
+        }
 
-        var real = TryRealPath(requested);
+        var real = Resolve(requested); // jailed: must be under a current root
         if (real is null || !Directory.Exists(real)) return null;
         return BuildListing(real, includeFiles: false);
     }
@@ -120,39 +125,13 @@ public sealed class FileBrowser
                 ? string.CompareOrdinal(a.Type, b.Type)
                 : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
+        // Parent link only when it is still INSIDE a root — you can never step
+        // above a root via ".." (jail boundary).
         string? parent = null;
         var up = Path.GetDirectoryName(real.TrimEnd(Path.DirectorySeparatorChar));
-        if (up is not null && Directory.Exists(up)) parent = TryRealPath(up);
+        if (up is not null && Resolve(up) is { } okUp) parent = okUp;
 
         return new FsListResponse(real, parent, entries.ToArray());
-    }
-
-    private static FsEntry[] TopLevel()
-    {
-        var list = new List<FsEntry>();
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (var d in DriveInfo.GetDrives())
-            {
-                try { if (d.IsReady) list.Add(new FsEntry(d.Name, d.RootDirectory.FullName, "dir", 0)); }
-                catch { /* skip */ }
-            }
-        }
-        else
-        {
-            // NAS shares live under /volumeN; fall back to / if none present.
-            try
-            {
-                var vols = Directory.GetDirectories("/", "volume*");
-                if (vols.Length > 0)
-                    foreach (var v in vols) list.Add(new FsEntry(Path.GetFileName(v), v, "dir", 0));
-                else
-                    foreach (var d in Directory.GetDirectories("/"))
-                        list.Add(new FsEntry(Path.GetFileName(d), d, "dir", 0));
-            }
-            catch { /* skip */ }
-        }
-        return list.ToArray();
     }
 
     public ScanEntry[]? Scan(string? requested, int max = 5000)
