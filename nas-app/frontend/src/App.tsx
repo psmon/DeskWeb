@@ -77,6 +77,13 @@ export default function App() {
     };
   }, []);
 
+  // ---- touchscreen: block the right-click / two-finger context menu ---------
+  useEffect(() => {
+    const prevent = (e: Event) => e.preventDefault();
+    document.addEventListener("contextmenu", prevent);
+    return () => document.removeEventListener("contextmenu", prevent);
+  }, []);
+
   // ---- band stage (created once the canvas is mounted) ----------------------
   useEffect(() => {
     const canvas = canvasRef.current;
