@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type RefObject } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type RefObject } from "react";
 import {
   api,
   BITMIDI_GENRES,
@@ -9,6 +9,7 @@ import {
   type PlayItem,
   type ScanEntry,
 } from "../api/client";
+import { favorites } from "../state/favorites";
 
 // html-midi-player bundles magenta+tone (~2MB) — load it only when the score
 // view is actually opened, keeping the initial bundle small.
@@ -34,7 +35,12 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 export default function PlayerView(props: Props) {
   const { roots, listing, songs, nowPath, busy, bandCanvasRef } = props;
-  const [source, setSource] = useState<"local" | "bitmidi">("bitmidi");
+  const [source, setSource] = useState<"local" | "bitmidi" | "fav">("bitmidi");
+
+  // liked songs (localStorage), reactive
+  const [favList, setFavList] = useState<PlayItem[]>(() => favorites.list());
+  useEffect(() => favorites.subscribe(() => setFavList(favorites.list())), []);
+  const favSet = useMemo(() => new Set(favList.map((f) => f.id)), [favList]);
 
   // layout: collapsible sidebar + resizable panels
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -108,6 +114,19 @@ export default function PlayerView(props: Props) {
     if (window.matchMedia("(max-width: 700px)").matches) setSidebarOpen(false);
   };
 
+  const heart = (item: PlayItem) => (
+    <button
+      className={"fav-btn" + (favSet.has(item.id) ? " on" : "")}
+      title="좋아요"
+      onClick={(e) => {
+        e.stopPropagation();
+        favorites.toggle(item);
+      }}
+    >
+      {favSet.has(item.id) ? "❤" : "🤍"}
+    </button>
+  );
+
   return (
     <div className="playerview" hidden={props.hidden}>
       <aside
@@ -123,6 +142,9 @@ export default function PlayerView(props: Props) {
           </button>
           <button className={source === "local" ? "on" : ""} onClick={() => setSource("local")}>
             내 MIDI
+          </button>
+          <button className={source === "fav" ? "on" : ""} onClick={() => setSource("fav")}>
+            ❤️ {favList.length || ""}
           </button>
         </div>
 
@@ -187,6 +209,7 @@ export default function PlayerView(props: Props) {
                     className={nowPath === s.path ? "active" : ""}
                     onClick={() => selectPlay(localItems(songs), i)}
                   >
+                    {heart({ title: s.title, id: s.path, kind: "local" })}
                     <span className="t">{s.title}</span>
                     <span className="f">{s.folder}</span>
                   </li>
@@ -195,7 +218,7 @@ export default function PlayerView(props: Props) {
               </ul>
             </section>
           </>
-        ) : (
+        ) : source === "bitmidi" ? (
           <section className="bitmidi">
             <h3>BitMidi 온라인 {browsing ? `간편재생 (${catalog.length})` : "검색"}</h3>
             <div className="search">
@@ -226,6 +249,7 @@ export default function PlayerView(props: Props) {
                   className={nowPath === e.url ? "active" : ""}
                   onClick={() => selectPlay(bmItems(bmShown), i)}
                 >
+                  {heart({ title: e.title, id: e.url, kind: "bitmidi" })}
                   <span className="t">{e.title}</span>
                   {"genre" in e && <span className="f">{(e as BitmidiCatalogEntry).genre}</span>}
                 </li>
@@ -233,6 +257,26 @@ export default function PlayerView(props: Props) {
               {browsing && !catalog.length && <li className="hint">카탈로그 로딩…</li>}
               {!browsing && !results.length && !searching && (
                 <li className="hint">검색 결과 없음 (인터넷 필요).</li>
+              )}
+            </ul>
+          </section>
+        ) : (
+          <section className="bitmidi">
+            <h3>❤️ 좋아요 {favList.length ? `(${favList.length})` : ""}</h3>
+            <ul className="songs">
+              {favList.map((f, i) => (
+                <li
+                  key={f.id}
+                  className={nowPath === f.id ? "active" : ""}
+                  onClick={() => selectPlay(favList, i)}
+                >
+                  {heart(f)}
+                  <span className="t">{f.title}</span>
+                  <span className="f">{f.kind === "bitmidi" ? "BitMidi" : "내 MIDI"}</span>
+                </li>
+              ))}
+              {!favList.length && (
+                <li className="hint">곡 옆의 하트를 누르면 여기에 모입니다.</li>
               )}
             </ul>
           </section>

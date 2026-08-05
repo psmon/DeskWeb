@@ -217,11 +217,26 @@ button:disabled {
 
 .songs li {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
+}
+.songs li .t {
+  flex: 1;
+  min-width: 0;
+}
+.fav-btn {
+  flex-shrink: 0;
+  background: transparent;
+  padding: 2px 3px;
+  font-size: 15px;
+  line-height: 1;
+}
+.fav-btn:hover {
+  background: transparent;
+  transform: scale(1.15);
 }
 .songs li:hover {
   background: #303048;
@@ -666,5 +681,21 @@ select {
     white-space: nowrap;
     padding: 5px 8px;
     font-size: 12px;
+  }
+  /* iOS: font ≥ 16px stops focus auto-zoom (no scale left stuck) */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  /* settings fit narrow screens */
+  .settingsview {
+    padding: 14px 14px 28px;
+  }
+  .smb-form {
+    grid-template-columns: 1fr;
+  }
+  .row span {
+    width: 116px;
   }
 }
