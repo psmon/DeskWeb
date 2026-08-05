@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import "html-midi-player"; // registers <midi-visualizer>
 import { urlToNoteSequence } from "@magenta/music/esm/core/midi_io.js";
+import { PianoKeys } from "../engines/pianoKeys";
+import { noteBus } from "../state/noteBus";
 
 // Score view (악보보기), multi-row. The song is parsed once (no render), then only
 // a small window of consecutive PAGE_SEC-second pages is rendered as stacked rows
@@ -41,6 +43,7 @@ interface Props {
 export default function ScoreView({ streamUrl, getTime, visible }: Props) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
+  const pianoCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fullRef = useRef<NoteSeq | null>(null);
   const rowsRef = useRef<Map<number, Row>>(new Map());
   const loadSeq = useRef(0);
@@ -74,6 +77,20 @@ export default function ScoreView({ streamUrl, getTime, visible }: Props) {
   // notation type change → re-render rows
   useEffect(() => {
     clearRows();
+  }, [type]);
+
+  // piano-roll mode: a live, vertical piano keyboard struck by note events.
+  useEffect(() => {
+    if (type !== "piano-roll") return;
+    const canvas = pianoCanvasRef.current;
+    if (!canvas) return;
+    const pk = new PianoKeys(canvas);
+    pk.start();
+    const unsub = noteBus.subscribe((e) => pk.onNote(e));
+    return () => {
+      unsub();
+      pk.dispose();
+    };
   }, [type]);
 
   useEffect(() => {
@@ -174,11 +191,15 @@ export default function ScoreView({ streamUrl, getTime, visible }: Props) {
         <span>악보보기 {status && <em className="score-status">· {status}</em>}</span>
         <select value={type} onChange={(e) => setType(e.target.value as "staff" | "piano-roll")}>
           <option value="staff">오선보</option>
-          <option value="piano-roll">피아노롤</option>
+          <option value="piano-roll">피아노</option>
         </select>
       </div>
       <div className="score-body" ref={bodyRef}>
-        <div className="score-stack" ref={stackRef} />
+        {type === "piano-roll" ? (
+          <canvas ref={pianoCanvasRef} className="piano-canvas" />
+        ) : (
+          <div className="score-stack" ref={stackRef} />
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { RealEngine } from "./engines/realEngine";
 import { BandStage } from "./engines/bandStage";
 import PlayerView from "./components/PlayerView";
 import SettingsView from "./components/SettingsView";
+import { noteBus } from "./state/noteBus";
 
 const DEFAULT_SETTINGS: AppSettings = {
   scanFolders: [],
@@ -94,7 +95,10 @@ export default function App() {
   const engine = useCallback(() => {
     if (!engineRef.current) {
       engineRef.current = new RealEngine({
-        onNote: (e) => bandRef.current?.onNote(e),
+        onNote: (e) => {
+          bandRef.current?.onNote(e);
+          noteBus.emit(e); // drives the piano keyboard visualizer
+        },
         onEnded: () => setPaused(true),
       });
       engineRef.current.setVolume(volumeRef.current);
