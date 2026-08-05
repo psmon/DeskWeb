@@ -23,7 +23,7 @@
 ```bash
 docker run -d -p 29090:29090 \
   -v /path/to/midi:/music:ro \
-  ghcr.io/psmon/midiplayer:1.0.0    # 또는 docker.io/psmon/midiplayer:1.0.0
+  ghcr.io/psmon/midiplayer:1.1.0    # 또는 docker.io/psmon/midiplayer:1.1.0
 ```
 
 접속: **http://localhost:29090**
@@ -33,7 +33,7 @@ docker-compose:
 ```yaml
 services:
   midiplayer:
-    image: psmon/midiplayer:1.0.0
+    image: psmon/midiplayer:1.1.0
     ports:
       - "29090:29090"
     volumes:
@@ -69,7 +69,7 @@ services:
 
 ## 🏷️ 태그 / 아키텍처
 
-- `psmon/midiplayer:1.0.0`, `psmon/midiplayer:latest`
+- `psmon/midiplayer:1.1.0`, `psmon/midiplayer:latest`
 - 아키텍처: **linux/amd64** (arm64 필요 시 문의)
 
 소스: https://github.com/psmon/DeskWeb (`nas-app/`)

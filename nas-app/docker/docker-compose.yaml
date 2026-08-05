@@ -1,10 +1,10 @@
 # UGOS Container Manager — run MIDI Ani Player with NO UPK and NO UGREEN approval.
 #
-# Image: psmon/midiplayer:1.0.0  (Docker Hub — public, no login needed)
+# Image: psmon/midiplayer:1.1.0  (Docker Hub — public, no login needed)
 #        https://hub.docker.com/r/psmon/midiplayer
 #
 # Setup on the NAS (Container Manager / Docker):
-#   1. Pull:  docker pull psmon/midiplayer:1.0.0
+#   1. Pull:  docker pull psmon/midiplayer:1.1.0
 #      (Container Manager: Registry → search "psmon/midiplayer" → download)
 #   2. Edit the /music bind mount below to your NAS music folder
 #      (on the NAS this is a local path, e.g. /volume1/DataA-MEDIA/midi).
@@ -12,7 +12,7 @@
 #   4. Open  http://<NAS-IP>:29090
 services:
   midi-ani-player:
-    image: psmon/midiplayer:1.0.0
+    image: psmon/midiplayer:1.1.0
     container_name: midi-ani-player
     ports:
       - "29090:29090"          # host:container — change host port if needed
