@@ -85,8 +85,8 @@ export default function App() {
       bandRef.current.start();
       (window as unknown as { __band?: BandStage }).__band = bandRef.current;
     }
-    // Click a performer to "jam" — play that instrument at a pitch that fits the
-    // song's current chord, with a sound-wave ripple at the click.
+    // Tap the stage to lay down a beat: left half = basic drum kit, right half =
+    // DJ / FX hits. Position picks the drum; a colored sound-wave marks the hit.
     const onClick = (ev: MouseEvent) => {
       const band = bandRef.current;
       const eng = engineRef.current;
@@ -94,11 +94,9 @@ export default function App() {
       const rect = canvas.getBoundingClientRect();
       const x = (ev.clientX - rect.left) * (canvas.width / rect.width);
       const y = (ev.clientY - rect.top) * (canvas.height / rect.height);
-      const hit = band.performerAt(x);
-      const pitch = snapPitch(y, canvas.height, band.chordClasses());
-      eng?.playNote(hit?.program ?? 0, pitch, 100, 750);
-      band.addRipple(x, y, hit?.hue ?? 200);
-      if (hit) band.strike(hit.slug);
+      const leftHalf = x < canvas.width / 2;
+      eng?.playDrum(drumForClick(x, y, canvas.width, canvas.height));
+      band.addRipple(x, y, leftHalf ? 195 : 315);
     };
     canvas?.addEventListener("click", onClick);
     return () => {
@@ -333,19 +331,19 @@ export default function App() {
   );
 }
 
-/** Click Y → a MIDI pitch, snapped to the song's current chord (so it harmonizes). */
-function snapPitch(y: number, h: number, classes: number[]): number {
-  const frac = 1 - Math.max(0, Math.min(1, y / h)); // top of stage = higher pitch
-  const base = 48 + Math.round(frac * 36); // C3..C6
-  const allowed = classes.length ? classes : [0, 2, 4, 7, 9]; // C major pentatonic fallback
-  const set = new Set(allowed.map((c) => ((c % 12) + 12) % 12));
-  const pc = (n: number) => ((n % 12) + 12) % 12;
-  if (set.has(pc(base))) return base;
-  for (let d = 1; d <= 6; d++) {
-    if (set.has(pc(base + d))) return base + d;
-    if (set.has(pc(base - d))) return base - d;
-  }
-  return base;
+// GM drum notes. A 3-col × 2-row pad grid per half. Left = standard kit,
+// right = DJ / FX (GS scratch 29/30, cymbals, china, ride, clap).
+const DRUM_KIT = [42, 46, 49, 36, 38, 45]; // top: closed-hat, open-hat, crash · bottom: kick, snare, tom
+const DRUM_DJ = [29, 30, 55, 52, 51, 39]; // top: scratch-push, scratch-pull, splash · bottom: china, ride, clap
+
+/** Click position → a GM drum note (which half + which pad). */
+function drumForClick(x: number, y: number, w: number, h: number): number {
+  const leftHalf = x < w / 2;
+  const localX = leftHalf ? x / (w / 2) : (x - w / 2) / (w / 2); // 0..1 within half
+  const col = Math.max(0, Math.min(2, Math.floor(localX * 3)));
+  const row = y < h / 2 ? 0 : 1;
+  const pads = leftHalf ? DRUM_KIT : DRUM_DJ;
+  return pads[row * 3 + col];
 }
 
 function fmt(sec: number): string {

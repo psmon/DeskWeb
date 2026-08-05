@@ -299,6 +299,24 @@ export class BandStage {
       ctx.fillText("연주자 대기중 — 곡을 재생하면 악단이 등장합니다", w / 2, h / 2);
     }
 
+    // interaction zones hint: left = drum kit, right = DJ / FX
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 7]);
+    ctx.beginPath();
+    ctx.moveTo(w / 2, h * 0.12);
+    ctx.lineTo(w / 2, h * 0.9);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(127,216,255,0.4)";
+    ctx.fillText("🥁 드럼", w * 0.25, h - 12);
+    ctx.fillStyle = "rgba(255,159,224,0.4)";
+    ctx.fillText("🎛 DJ FX", w * 0.75, h - 12);
+    ctx.restore();
+
     // click sound-wave ripples (on top)
     const RIP = 720;
     for (let i = this.ripples.length - 1; i >= 0; i--) {

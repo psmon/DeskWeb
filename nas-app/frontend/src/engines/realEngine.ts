@@ -153,8 +153,31 @@ export class RealEngine {
   }
 
   /**
-   * Play a one-off note interactively (e.g. clicking a performer to jam along).
-   * Uses a dedicated channel beyond the song's 16 so it never disturbs playback.
+   * Trigger a percussion hit on the GM drum channel (10 / index 9). Note number
+   * selects the drum sound (e.g. 36=kick, 38=snare, 42=hat). Mixes with the
+   * song's own drums — great for tapping out a beat.
+   */
+  playDrum(drumNote: number, velocity = 112): void {
+    const synth = this.synth;
+    if (!synth) return;
+    try {
+      this.ctx?.resume();
+      synth.noteOn(9, drumNote, velocity);
+      window.setTimeout(() => {
+        try {
+          synth.noteOff(9, drumNote);
+        } catch {
+          /* ignore */
+        }
+      }, 180);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Play a one-off melodic note on a dedicated channel beyond the song's 16.
+   * (Kept for possible future use; the click UI uses playDrum.)
    */
   playNote(program: number, midiNote: number, velocity: number, durationMs = 700): void {
     const synth = this.synth;
