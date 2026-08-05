@@ -23,7 +23,7 @@
 ```bash
 docker run -d -p 29090:29090 \
   -v /path/to/midi:/music:ro \
-  ghcr.io/psmon/midiplayer:1.1.1    # 또는 docker.io/psmon/midiplayer:1.1.1
+  psmon/midiplayer:1.1.1
 ```
 
 접속: **http://localhost:29090**
