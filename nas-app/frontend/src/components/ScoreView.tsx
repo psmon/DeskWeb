@@ -47,7 +47,8 @@ export default function ScoreView({ streamUrl, getTime, visible }: Props) {
   const fullRef = useRef<NoteSeq | null>(null);
   const rowsRef = useRef<Map<number, Row>>(new Map());
   const loadSeq = useRef(0);
-  const [type, setType] = useState<"staff" | "piano-roll">("staff");
+  // Piano keyboard is the default view (오선보 available from the dropdown).
+  const [type, setType] = useState<"staff" | "piano-roll">("piano-roll");
   const [status, setStatus] = useState("");
 
   const clearRows = () => {
@@ -190,8 +191,8 @@ export default function ScoreView({ streamUrl, getTime, visible }: Props) {
       <div className="score-head">
         <span>악보보기 {status && <em className="score-status">· {status}</em>}</span>
         <select value={type} onChange={(e) => setType(e.target.value as "staff" | "piano-roll")}>
-          <option value="staff">오선보</option>
           <option value="piano-roll">피아노</option>
+          <option value="staff">오선보</option>
         </select>
       </div>
       <div className="score-body" ref={bodyRef}>

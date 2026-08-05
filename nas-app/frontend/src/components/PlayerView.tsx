@@ -6,6 +6,7 @@ import {
   type BitmidiResult,
   type FsListResponse,
   type FsRoot,
+  type PlayItem,
   type ScanEntry,
 } from "../api/client";
 
@@ -22,21 +23,25 @@ interface Props {
   bandCanvasRef: RefObject<HTMLCanvasElement | null>;
   onNavigate: (path: string) => void;
   onScan: () => void;
-  onPlay: (title: string, path: string) => void;
-  onPlayBitmidi: (title: string, url: string) => void;
+  onPlayQueue: (items: PlayItem[], index: number) => void;
   scoreOn: boolean;
   streamUrl: string | null;
   getTime: () => number;
   hidden?: boolean;
 }
 
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
 export default function PlayerView(props: Props) {
   const { roots, listing, songs, nowPath, busy, bandCanvasRef } = props;
-  // BitMidi is the default — anyone can play immediately with no setup; users
-  // switch to "내 MIDI" only when they want their own files.
   const [source, setSource] = useState<"local" | "bitmidi">("bitmidi");
 
-  // BitMidi search state (self-contained)
+  // layout: collapsible sidebar + resizable panels
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [scoreWidth, setScoreWidth] = useState(380);
+
+  // BitMidi state
   const [q, setQ] = useState("");
   const [results, setResults] = useState<BitmidiResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -44,7 +49,6 @@ export default function PlayerView(props: Props) {
   const [catalog, setCatalog] = useState<BitmidiCatalogEntry[]>([]);
   const [genre, setGenre] = useState("전체");
 
-  // Load the bundled catalog the first time the BitMidi tab is opened.
   useEffect(() => {
     if (source === "bitmidi" && !catalog.length) {
       api.bitmidiCatalog().then(setCatalog).catch(() => {});
@@ -53,6 +57,7 @@ export default function PlayerView(props: Props) {
 
   const browsing = !q.trim();
   const browseList = catalog.filter((e) => genre === "전체" || e.genre === genre);
+  const bmShown = browsing ? browseList.slice(0, 600) : results;
 
   const doSearch = async () => {
     if (!q.trim()) return;
@@ -67,9 +72,38 @@ export default function PlayerView(props: Props) {
     }
   };
 
+  // drag-to-resize splitter. dir=+1 grows with rightward drag, -1 with leftward.
+  const startDrag = (
+    e: React.MouseEvent,
+    get: () => number,
+    set: (n: number) => void,
+    dir: number,
+    min: number,
+    max: number,
+  ) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const v0 = get();
+    const onMove = (ev: MouseEvent) => set(clamp(v0 + (ev.clientX - x0) * dir, min, max));
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+  };
+
+  // build a queue from a local file listing / library / bitmidi list
+  const localItems = (list: { title: string; path: string }[]): PlayItem[] =>
+    list.map((x) => ({ title: x.title, id: x.path, kind: "local" }));
+  const bmItems = (list: { title: string; url: string }[]): PlayItem[] =>
+    list.map((x) => ({ title: x.title, id: x.url, kind: "bitmidi" }));
+
   return (
     <div className="playerview" hidden={props.hidden}>
-      <aside className="sidecol">
+      <aside className="sidecol" style={{ width: sidebarOpen ? sidebarWidth : 0 }}>
         <div className="source-switch">
           <button className={source === "bitmidi" ? "on" : ""} onClick={() => setSource("bitmidi")}>
             🎧 BitMidi
@@ -109,7 +143,17 @@ export default function PlayerView(props: Props) {
                         </li>
                       ) : (
                         <li key={e.path}>
-                          <button onClick={() => props.onPlay(e.name, e.path)}>🎼 {e.name}</button>
+                          <button
+                            onClick={() => {
+                              const files = listing.entries.filter((x) => x.type === "file");
+                              props.onPlayQueue(
+                                localItems(files.map((f) => ({ title: f.name, path: f.path }))),
+                                files.findIndex((f) => f.path === e.path),
+                              );
+                            }}
+                          >
+                            🎼 {e.name}
+                          </button>
                         </li>
                       ),
                     )}
@@ -124,11 +168,11 @@ export default function PlayerView(props: Props) {
             <section className="panel library">
               <h3>라이브러리 {songs.length ? `(${songs.length})` : ""}</h3>
               <ul className="songs">
-                {songs.map((s) => (
+                {songs.map((s, i) => (
                   <li
                     key={s.path}
                     className={nowPath === s.path ? "active" : ""}
-                    onClick={() => props.onPlay(s.title, s.path)}
+                    onClick={() => props.onPlayQueue(localItems(songs), i)}
                   >
                     <span className="t">{s.title}</span>
                     <span className="f">{s.folder}</span>
@@ -155,11 +199,7 @@ export default function PlayerView(props: Props) {
             {browsing && (
               <div className="bm-genres">
                 {BITMIDI_GENRES.map((g) => (
-                  <button
-                    key={g}
-                    className={genre === g ? "on" : ""}
-                    onClick={() => setGenre(g)}
-                  >
+                  <button key={g} className={genre === g ? "on" : ""} onClick={() => setGenre(g)}>
                     {g}
                   </button>
                 ))}
@@ -167,26 +207,16 @@ export default function PlayerView(props: Props) {
             )}
             {searchErr && <div className="error">{searchErr}</div>}
             <ul className="songs">
-              {browsing
-                ? browseList.slice(0, 600).map((e) => (
-                    <li
-                      key={e.url}
-                      className={nowPath === e.url ? "active" : ""}
-                      onClick={() => props.onPlayBitmidi(e.title, e.url)}
-                    >
-                      <span className="t">{e.title}</span>
-                      <span className="f">{e.genre}</span>
-                    </li>
-                  ))
-                : results.map((r) => (
-                    <li
-                      key={r.url}
-                      className={nowPath === r.url ? "active" : ""}
-                      onClick={() => props.onPlayBitmidi(r.title, r.url)}
-                    >
-                      <span className="t">{r.title}</span>
-                    </li>
-                  ))}
+              {bmShown.map((e, i) => (
+                <li
+                  key={e.url}
+                  className={nowPath === e.url ? "active" : ""}
+                  onClick={() => props.onPlayQueue(bmItems(bmShown), i)}
+                >
+                  <span className="t">{e.title}</span>
+                  {"genre" in e && <span className="f">{(e as BitmidiCatalogEntry).genre}</span>}
+                </li>
+              ))}
               {browsing && !catalog.length && <li className="hint">카탈로그 로딩…</li>}
               {!browsing && !results.length && !searching && (
                 <li className="hint">검색 결과 없음 (인터넷 필요).</li>
@@ -196,12 +226,34 @@ export default function PlayerView(props: Props) {
         )}
       </aside>
 
+      {sidebarOpen && (
+        <div
+          className="splitter v"
+          onMouseDown={(e) => startDrag(e, () => sidebarWidth, setSidebarWidth, 1, 200, 560)}
+        />
+      )}
+
       <div className="stage">
+        <button
+          className="side-toggle"
+          title="목록 접기/펼치기"
+          onClick={() => setSidebarOpen((o) => !o)}
+        >
+          {sidebarOpen ? "◀" : "▶"}
+        </button>
         <canvas ref={bandCanvasRef} className="band-canvas" />
         {props.scoreOn && (
-          <Suspense fallback={<div className="score-panel">악보 로딩…</div>}>
-            <ScoreView visible={true} streamUrl={props.streamUrl} getTime={props.getTime} />
-          </Suspense>
+          <>
+            <div
+              className="splitter v"
+              onMouseDown={(e) => startDrag(e, () => scoreWidth, setScoreWidth, -1, 240, 720)}
+            />
+            <div className="score-wrap" style={{ width: scoreWidth }}>
+              <Suspense fallback={<div className="score-panel">악보 로딩…</div>}>
+                <ScoreView visible={true} streamUrl={props.streamUrl} getTime={props.getTime} />
+              </Suspense>
+            </div>
+          </>
         )}
       </div>
     </div>

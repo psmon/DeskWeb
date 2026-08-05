@@ -129,6 +129,17 @@ export interface BitmidiResult {
   url: string;
 }
 
+/** A playable item in a queue (local NAS file or a BitMidi url). */
+export interface PlayItem {
+  title: string;
+  id: string; // local path OR bitmidi url
+  kind: "local" | "bitmidi";
+}
+
+export function streamUrlFor(item: PlayItem): string {
+  return item.kind === "local" ? api.streamUrl(item.id) : api.bitmidiFileUrl(item.id);
+}
+
 export interface BitmidiCatalogEntry {
   title: string;
   genre: string;

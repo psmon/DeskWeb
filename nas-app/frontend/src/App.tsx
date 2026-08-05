@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type AppSettings, type FsListResponse, type FsRoot, type ScanEntry } from "./api/client";
+import {
+  api,
+  streamUrlFor,
+  type AppSettings,
+  type FsListResponse,
+  type FsRoot,
+  type PlayItem,
+  type ScanEntry,
+} from "./api/client";
 import { RealEngine } from "./engines/realEngine";
 import { BandStage } from "./engines/bandStage";
 import PlayerView from "./components/PlayerView";
@@ -20,6 +28,10 @@ export default function App() {
   const bandRef = useRef<BandStage | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const volumeRef = useRef(0.9);
+  // Play queue (for prev/next + auto-advance). Refs avoid stale closures.
+  const queueRef = useRef<PlayItem[]>([]);
+  const qIdxRef = useRef(-1);
+  const endedRef = useRef<() => void>(() => {});
 
   const [view, setView] = useState<"player" | "settings">("player");
   const [scoreOn, setScoreOn] = useState(false);
@@ -99,7 +111,7 @@ export default function App() {
           bandRef.current?.onNote(e);
           noteBus.emit(e); // drives the piano keyboard visualizer
         },
-        onEnded: () => setPaused(true),
+        onEnded: () => endedRef.current(),
       });
       engineRef.current.setVolume(volumeRef.current);
     }
@@ -128,19 +140,20 @@ export default function App() {
     }
   }, [listing]);
 
-  const play = useCallback(
-    async (title: string, path: string) => {
+  const playItem = useCallback(
+    async (item: PlayItem) => {
       setError(null);
       setBusy(true);
       try {
-        const res = await fetch(api.streamUrl(path));
+        const url = streamUrlFor(item);
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`stream ${res.status}`);
         const buf = await res.arrayBuffer();
         bandRef.current?.reset();
-        bandRef.current?.setSong(title);
-        setStreamUrl(api.streamUrl(path));
-        await engine().play(buf, title);
-        setNow({ title, path });
+        bandRef.current?.setSong(item.title);
+        setStreamUrl(url);
+        await engine().play(buf, item.title);
+        setNow({ title: item.title, path: item.id });
         setPaused(false);
       } catch (e) {
         setError(String(e));
@@ -151,28 +164,38 @@ export default function App() {
     [engine],
   );
 
-  const playBitmidi = useCallback(
-    async (title: string, url: string) => {
-      setError(null);
-      setBusy(true);
-      try {
-        const res = await fetch(api.bitmidiFileUrl(url));
-        if (!res.ok) throw new Error(`bitmidi ${res.status}`);
-        const buf = await res.arrayBuffer();
-        bandRef.current?.reset();
-        bandRef.current?.setSong(title);
-        setStreamUrl(api.bitmidiFileUrl(url));
-        await engine().play(buf, title);
-        setNow({ title, path: url });
-        setPaused(false);
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setBusy(false);
-      }
+  // Play item[index] and remember the whole list as the queue (prev/next).
+  const playQueue = useCallback(
+    (items: PlayItem[], index: number) => {
+      queueRef.current = items;
+      qIdxRef.current = index;
+      if (items[index]) playItem(items[index]);
     },
-    [engine],
+    [playItem],
   );
+
+  const playAdjacent = useCallback(
+    (delta: number) => {
+      const q = queueRef.current;
+      const ni = qIdxRef.current + delta;
+      if (ni < 0 || ni >= q.length) return;
+      qIdxRef.current = ni;
+      playItem(q[ni]);
+    },
+    [playItem],
+  );
+
+  // When a song ends: auto-advance to the next, or stop at the end.
+  endedRef.current = () => {
+    const q = queueRef.current;
+    const ni = qIdxRef.current + 1;
+    if (ni < q.length) {
+      qIdxRef.current = ni;
+      playItem(q[ni]);
+    } else {
+      setPaused(true);
+    }
+  };
 
   const togglePlay = useCallback(() => {
     const eng = engineRef.current;
@@ -246,8 +269,7 @@ export default function App() {
           bandCanvasRef={canvasRef}
           onNavigate={navigate}
           onScan={scan}
-          onPlay={play}
-          onPlayBitmidi={playBitmidi}
+          onPlayQueue={playQueue}
           scoreOn={scoreOn}
           streamUrl={streamUrl}
           getTime={getTime}
@@ -256,8 +278,14 @@ export default function App() {
       </main>
 
       <footer className="transport">
+        <button className="tbtn" title="이전 곡" onClick={() => playAdjacent(-1)} disabled={!now}>
+          ⏮
+        </button>
         <button className="play" onClick={togglePlay} disabled={!now}>
           {paused ? "▶" : "⏸"}
+        </button>
+        <button className="tbtn" title="다음 곡" onClick={() => playAdjacent(1)} disabled={!now}>
+          ⏭
         </button>
         <div className="np">
           <div className="title">{now?.title ?? "재생 중인 곡 없음"}</div>
