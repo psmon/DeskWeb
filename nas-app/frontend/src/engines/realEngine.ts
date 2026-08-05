@@ -25,7 +25,8 @@ export interface RealEngineCallbacks {
 export class RealEngine {
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
-  // The lib's public surface is loosely typed; keep this as any locally.
+  // The lib's public surface is loosely typed; keep these as any locally.
+  private synth: any = null;
   private seq: any = null;
   private ready: Promise<void> | null = null;
   private chProg: number[] = new Array(16).fill(0);
@@ -92,6 +93,7 @@ export class RealEngine {
 
       this.ctx = ctx;
       this.gain = gain;
+      this.synth = synth;
       this.seq = seq;
     })().catch((err) => {
       // Allow a retry after a failed init.
@@ -143,6 +145,36 @@ export class RealEngine {
 
   get duration(): number {
     return this.seq ? this.seq.duration ?? 0 : 0;
+  }
+
+  /** True once the synth is initialized (soundfont loaded). */
+  get isReady(): boolean {
+    return !!this.synth;
+  }
+
+  /**
+   * Play a one-off note interactively (e.g. clicking a performer to jam along).
+   * Uses a dedicated channel beyond the song's 16 so it never disturbs playback.
+   */
+  playNote(program: number, midiNote: number, velocity: number, durationMs = 700): void {
+    const synth = this.synth;
+    if (!synth) return;
+    try {
+      this.ctx?.resume();
+      while (synth.channelCount <= 16) synth.addNewChannel();
+      const ch = 16;
+      synth.programChange(ch, program);
+      synth.noteOn(ch, midiNote, velocity);
+      window.setTimeout(() => {
+        try {
+          synth.noteOff(ch, midiNote);
+        } catch {
+          /* ignore */
+        }
+      }, durationMs);
+    } catch {
+      /* ignore */
+    }
   }
 
   setVolume(v: number): void {

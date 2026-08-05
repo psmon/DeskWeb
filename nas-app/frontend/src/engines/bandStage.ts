@@ -21,6 +21,25 @@ interface Performer {
   slug: string;
   lastNote: number;
   bornAt: number;
+  program: number;
+  hue: number;
+  // last-drawn screen box (for click hit-testing)
+  x: number;
+  y: number;
+  size: number;
+}
+
+interface Ripple {
+  x: number;
+  y: number;
+  at: number;
+  hue: number;
+}
+
+export interface PerformerHit {
+  slug: string;
+  program: number;
+  hue: number;
 }
 
 /** GM program (or drum flag) → performer sprite slug. */
@@ -70,6 +89,8 @@ export class BandStage {
   private spectrum: number[] = new Array(64).fill(0);
   private sprites: Record<string, HTMLImageElement> = {};
   private songLabel: string | null = null;
+  private ripples: Ripple[] = [];
+  private recentPitch = new Map<number, number>(); // pitchClass → last-heard timestamp
   private ro: ResizeObserver;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -97,10 +118,50 @@ export class BandStage {
     return this.order.length;
   }
 
+  /** Pitch classes (0–11) heard recently — the current chord/harmony to snap to. */
+  chordClasses(windowMs = 2600): number[] {
+    const now = performance.now();
+    const out: number[] = [];
+    this.recentPitch.forEach((t, pc) => {
+      if (now - t < windowMs) out.push(pc);
+    });
+    return out;
+  }
+
+  /** The performer nearest a click x (which instrument was clicked), or null. */
+  performerAt(px: number): PerformerHit | null {
+    let best: Performer | null = null;
+    let bestDx = Infinity;
+    for (const slug of this.order) {
+      const p = this.performers[slug];
+      if (!p.size) continue;
+      const dx = Math.abs(px - p.x);
+      if (dx < p.size * 0.85 && dx < bestDx) {
+        bestDx = dx;
+        best = p;
+      }
+    }
+    return best ? { slug: best.slug, program: best.program, hue: best.hue } : null;
+  }
+
+  /** Spawn a sound-wave ripple at a click point. */
+  addRipple(x: number, y: number, hue: number): void {
+    this.ripples.push({ x, y, at: performance.now(), hue });
+    if (this.ripples.length > 48) this.ripples.shift();
+  }
+
+  /** Re-activate a performer's sprite (as if it just played). */
+  strike(slug: string): void {
+    const p = this.performers[slug];
+    if (p) p.lastNote = performance.now();
+  }
+
   reset(): void {
     this.performers = {};
     this.order = [];
     this.spectrum = new Array(64).fill(0);
+    this.ripples = [];
+    this.recentPitch.clear();
   }
 
   /** Feed a MIDI note: spawn/activate its performer + inject spectrum energy. */
@@ -109,10 +170,23 @@ export class BandStage {
     const slug = mapProgram(e.program, isDrum);
 
     if (!this.performers[slug]) {
-      this.performers[slug] = { slug, lastNote: 0, bornAt: performance.now() };
+      this.performers[slug] = {
+        slug,
+        lastNote: 0,
+        bornAt: performance.now(),
+        program: e.program,
+        hue: (this.order.length * 47) % 360,
+        x: 0,
+        y: 0,
+        size: 0,
+      };
       this.order.push(slug);
     }
-    this.performers[slug].lastNote = performance.now();
+    const perf = this.performers[slug];
+    perf.lastNote = performance.now();
+    perf.program = e.program;
+    // track the current harmony (pitch classes), skipping drums
+    if (!isDrum) this.recentPitch.set(((e.midiNote % 12) + 12) % 12, performance.now());
 
     const bins = this.spectrum.length;
     const idx = Math.max(0, Math.min(bins - 1, Math.floor(((e.midiNote - 24) / 72) * bins)));
@@ -200,6 +274,10 @@ export class BandStage {
         const rowCount = row === Math.floor((n - 1) / perRow) ? n - row * perRow : perRow;
         const cx = w / 2 + (col - (rowCount - 1) / 2) * (size * 1.05);
         const cy = h * (n > perRow ? (row === 0 ? 0.52 : 0.8) : 0.72);
+        // remember screen box for click hit-testing
+        perf.x = cx;
+        perf.y = cy - size / 2;
+        perf.size = size;
 
         const active = now - perf.lastNote < 300;
         const img = this.sprite(perf.slug, active ? "play" : "idle");
@@ -219,6 +297,29 @@ export class BandStage {
       ctx.font = "16px Tahoma, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("연주자 대기중 — 곡을 재생하면 악단이 등장합니다", w / 2, h / 2);
+    }
+
+    // click sound-wave ripples (on top)
+    const RIP = 720;
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      const age = now - r.at;
+      if (age > RIP) {
+        this.ripples.splice(i, 1);
+        continue;
+      }
+      const p = age / RIP;
+      const rad = 8 + p * 130;
+      const a = (1 - p) * 0.7;
+      ctx.strokeStyle = `hsla(${r.hue}, 90%, 62%, ${a})`;
+      ctx.lineWidth = 3.5 * (1 - p) + 0.5;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `hsla(${r.hue}, 95%, 72%, ${a * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad * 0.28, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // song title

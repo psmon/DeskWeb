@@ -79,12 +79,30 @@ export default function App() {
 
   // ---- band stage (created once the canvas is mounted) ----------------------
   useEffect(() => {
-    if (canvasRef.current && !bandRef.current) {
-      bandRef.current = new BandStage(canvasRef.current);
+    const canvas = canvasRef.current;
+    if (canvas && !bandRef.current) {
+      bandRef.current = new BandStage(canvas);
       bandRef.current.start();
       (window as unknown as { __band?: BandStage }).__band = bandRef.current;
     }
+    // Click a performer to "jam" — play that instrument at a pitch that fits the
+    // song's current chord, with a sound-wave ripple at the click.
+    const onClick = (ev: MouseEvent) => {
+      const band = bandRef.current;
+      const eng = engineRef.current;
+      if (!band || !canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (ev.clientY - rect.top) * (canvas.height / rect.height);
+      const hit = band.performerAt(x);
+      const pitch = snapPitch(y, canvas.height, band.chordClasses());
+      eng?.playNote(hit?.program ?? 0, pitch, 100, 750);
+      band.addRipple(x, y, hit?.hue ?? 200);
+      if (hit) band.strike(hit.slug);
+    };
+    canvas?.addEventListener("click", onClick);
     return () => {
+      canvas?.removeEventListener("click", onClick);
       bandRef.current?.dispose();
       bandRef.current = null;
     };
@@ -313,6 +331,21 @@ export default function App() {
       </footer>
     </div>
   );
+}
+
+/** Click Y → a MIDI pitch, snapped to the song's current chord (so it harmonizes). */
+function snapPitch(y: number, h: number, classes: number[]): number {
+  const frac = 1 - Math.max(0, Math.min(1, y / h)); // top of stage = higher pitch
+  const base = 48 + Math.round(frac * 36); // C3..C6
+  const allowed = classes.length ? classes : [0, 2, 4, 7, 9]; // C major pentatonic fallback
+  const set = new Set(allowed.map((c) => ((c % 12) + 12) % 12));
+  const pc = (n: number) => ((n % 12) + 12) % 12;
+  if (set.has(pc(base))) return base;
+  for (let d = 1; d <= 6; d++) {
+    if (set.has(pc(base + d))) return base + d;
+    if (set.has(pc(base - d))) return base - d;
+  }
+  return base;
 }
 
 function fmt(sec: number): string {
