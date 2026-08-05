@@ -38,9 +38,12 @@ export class RealEngine {
   private ensure(): Promise<void> {
     if (this.ready) return this.ready;
     this.ready = (async () => {
+      // Reuse the context primed on the first user gesture (iOS unlock) so we
+      // never create/resume it outside a gesture.
       const AC: typeof AudioContext =
         window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AC();
+      const ctx = this.ctx ?? new AC();
+      this.ctx = ctx;
       // AudioWorklet only exists in a secure context (HTTPS or localhost).
       // Over plain HTTP on a remote host it is undefined → give a clear message.
       if (!ctx.audioWorklet) {
@@ -150,6 +153,28 @@ export class RealEngine {
   /** True once the synth is initialized (soundfont loaded). */
   get isReady(): boolean {
     return !!this.synth;
+  }
+
+  /**
+   * Unlock audio on the first user gesture (critical on iOS): create + resume
+   * the AudioContext synchronously and play a silent buffer, so it is already
+   * running by the time the (async) soundfont finishes loading.
+   */
+  prime(): void {
+    try {
+      if (!this.ctx) {
+        const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        this.ctx = new AC();
+      }
+      void this.ctx.resume();
+      const buf = this.ctx.createBuffer(1, 1, 22050);
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
   }
 
   /**

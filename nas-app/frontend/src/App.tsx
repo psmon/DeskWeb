@@ -84,6 +84,18 @@ export default function App() {
     return () => document.removeEventListener("contextmenu", prevent);
   }, []);
 
+  // ---- iOS/mobile: unlock audio on the very first tap -----------------------
+  useEffect(() => {
+    const unlock = () => engine().prime();
+    document.addEventListener("pointerdown", unlock, { once: true });
+    document.addEventListener("touchend", unlock, { once: true });
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("touchend", unlock);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---- band stage (created once the canvas is mounted) ----------------------
   useEffect(() => {
     const canvas = canvasRef.current;
