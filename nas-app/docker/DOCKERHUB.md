@@ -2,6 +2,8 @@
 
 ![MIDI Ani Player — band, piano keyboard & playlist](https://raw.githubusercontent.com/psmon/DeskWeb/main/nas-app/img/midipalyer1.jpg)
 
+### ▶ Live demo — **https://midi.webnori.com/**  (try it in your browser)
+
 **A web MIDI player for your NAS, server, or PC.** Play `.mid` files from NAS folders
 or online right in the browser — with an **animated performer band**, a **live piano
 keyboard**, **staff / score view**, and a tap‑to‑play **drum pad**. One container,

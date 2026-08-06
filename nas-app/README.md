@@ -4,7 +4,7 @@
 
 DeskWeb의 MIDI Player를 **NAS 전용 웹 앱**으로 떼어낸 프로젝트.
 악단 애니메이션 · 피아노 건반 · 오선보 · 드럼 잼을 갖춘 MIDI 플레이어를, NAS 폴더/네트워크 공유의 `.mid` 파일로 웹에서 재생한다.
-🐳 Docker Hub: [`psmon/midiplayer`](https://hub.docker.com/r/psmon/midiplayer)
+▶ **라이브 데모**: [https://midi.webnori.com/](https://midi.webnori.com/) · 🐳 Docker Hub: [`psmon/midiplayer`](https://hub.docker.com/r/psmon/midiplayer)
 
 - **백엔드**: .NET 10 Native AOT 단일 바이너리 `midi-ani-player` (linux-x64 / linux-arm64).
   정적 UI(`www/`) 서빙 + NAS 파일 접근 API + BitMidi 검색 프록시.
