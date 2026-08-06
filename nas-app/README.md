@@ -1,7 +1,10 @@
 # MIDI Ani Player — NAS App
 
+![MIDI Ani Player — band, piano keyboard & playlist](img/midipalyer1.jpg)
+
 DeskWeb의 MIDI Player를 **NAS 전용 웹 앱**으로 떼어낸 프로젝트.
-악단 애니메이션 + 악보보기를 갖춘 MIDI 플레이어를, NAS의 폴더/네트워크 폴더에 있는 `.mid` 파일로 웹에서 재생한다.
+악단 애니메이션 · 피아노 건반 · 오선보 · 드럼 잼을 갖춘 MIDI 플레이어를, NAS 폴더/네트워크 공유의 `.mid` 파일로 웹에서 재생한다.
+🐳 Docker Hub: [`psmon/midiplayer`](https://hub.docker.com/r/psmon/midiplayer)
 
 - **백엔드**: .NET 10 Native AOT 단일 바이너리 `midi-ani-player` (linux-x64 / linux-arm64).
   정적 UI(`www/`) 서빙 + NAS 파일 접근 API + BitMidi 검색 프록시.
@@ -11,14 +14,20 @@ DeskWeb의 MIDI Player를 **NAS 전용 웹 앱**으로 떼어낸 프로젝트.
 
 > 상세 설계: `../` 저장소 계획 문서 참조. 원본 위젯: `../deskweb/source/class/deskweb/ui/MidiPlayerWindow.js`.
 
-## 현재 상태 ✅ (브라우저 실측 완료)
+## 주요 기능 ✅ (브라우저 실측 완료)
 
-- **재생**: SpessaSynth Real HQ 엔진(로컬 SF3, 오프라인) · 볼륨 · **시크바**.
-- **악단 애니메이션**: GM 프로그램→연주자 스프라이트 + 64bin 스펙트럼(canvas).
-- **악보보기**: 오선보/피아노롤(html-midi-player, 재생 커서 동기화, lazy 로드).
-- **소스 3종**: 번들/NAS 폴더(UGOS 인가 연동) · **BitMidi 온라인 검색**(백엔드 프록시).
-- **설정**: 스캔 폴더 관리 · 엔진/볼륨/BitMidi (`/api/settings` 영속).
-- **패키징**: **실제 `.upk` 생성 검증** — ugcli 1.1.0.13로 `amd64_com.webnori.midiplayer_1.0.0.0001.upk` 서명 패키징 완료.
+- 🎭 **악단 애니메이션** — 곡의 GM 악기별 연주자 스프라이트 + 64bin 스펙트럼(canvas).
+- 🎹 **피아노 건반** — 재생 노트에 맞춰 세로 건반이 타격되는 canvas 연출(악보 기본 모드).
+- 🎼 **오선보(5선) 악보** — 페이지 윈도잉으로 여러 줄을 세로 스크롤(대곡도 경량).
+- 🥁 **드럼 잼(멀티터치)** — 무대를 눌러 드럼: **왼쪽 드럼킷 / 오른쪽 DJ FX**, 손가락별 동시 타격.
+- 🎧 **BitMidi 내장** — 사전 분류 카탈로그 1839곡(8장르) + 실시간 검색, 파일 없이 스트리밍.
+- ❤️ **좋아요** — 곡 하트로 즐겨찾기 목록 저장.
+- ⏮⏭ **이전/다음 + 자동 다음곡**, 재생목록 접기/펼치기, 패널 리사이즈.
+- 📁 **NAS 폴더** — 마운트 또는 **설정에서 SMB 공유 직접 추가**(OS 마운트 불필요).
+- 📱 **모바일 반응형** — 유튜브뮤직식(목록→악단 메인), iOS 오디오 언락.
+- **패키징**: 실제 서명 `.upk`(ugcli) + Docker Hub `psmon/midiplayer` 배포.
+
+![악단 + 오선보 악보](img/midipalyer2.jpg)
 
 미이식(선택): simple 엔진(html-midi-player 재생, SGM_plus 사운드폰트 이슈) · 주크박스 스킨(장식).
 

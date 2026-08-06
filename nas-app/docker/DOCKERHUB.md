@@ -1,75 +1,83 @@
 # 🎵 MIDI Ani Player
 
-**NAS·서버·PC 어디서든 도는 웹 MIDI 플레이어.** NAS 폴더/네트워크 공유의 `.mid` 파일을
-브라우저에서 재생하며, 음악에 맞춰 움직이는 **연주 악단 애니메이션**과 **실시간 악보(오선보/피아노롤)**,
-**BitMidi 온라인 카탈로그**를 제공합니다. 단일 컨테이너, 오프라인 재생 지원.
+![MIDI Ani Player — band, piano keyboard & playlist](https://raw.githubusercontent.com/psmon/DeskWeb/main/nas-app/img/midipalyer1.jpg)
 
-> `.NET 10 Native AOT` 백엔드 + `React` UI. 이미지 한 장으로 끝.
+**A web MIDI player for your NAS, server, or PC.** Play `.mid` files from NAS folders
+or online right in the browser — with an **animated performer band**, a **live piano
+keyboard**, **staff / score view**, and a tap‑to‑play **drum pad**. One container,
+offline playback, mobile‑friendly.
 
----
-
-## ✨ 기능
-
-- 🎹 **고음질 재생** — SpessaSynth(WASM SF3) 신디사이저, **인터넷 없이 로컬 재생**
-- 🎭 **악단 애니메이션** — 곡의 악기(GM)에 맞춰 연주자 스프라이트 + 스펙트럼
-- 🎼 **악보보기** — 오선보/피아노롤, 재생 커서 동기화 (대곡도 페이지 단위로 가볍게)
-- 🌐 **BitMidi** — 1,839곡 사전 분류 카탈로그(8장르) 브라우즈 + 실시간 검색, 파일 없이 스트리밍
-- 📁 **NAS 폴더 접근** — 폴더 마운트 **또는** 설정에서 **SMB 공유 직접 추가**(OS 마운트 불필요)
+> `.NET 10 Native AOT` backend + `React` UI. Ships as a single image.
 
 ---
 
-## 🚀 빠른 시작
+## ✨ Features
+
+- 🎭 **Animated performer band** — each instrument in the song gets an anime performer + a live spectrum.
+- 🎹 **Live piano keyboard** — a vertical keyboard whose keys are struck as the music plays (default score view).
+- 🎼 **Staff score view (5‑line)** — real notation that scrolls line‑by‑line, kept light via page windowing.
+- 🥁 **Tap‑to‑jam drum pad** — click/touch the stage to add drums: **left = drum kit, right = DJ FX**, multi‑touch.
+- 🎧 **BitMidi built‑in** — 1,800+ pre‑categorized songs (8 genres) + live search, streamed with no local files.
+- ❤️ **Favorites** — like any track into your own list.
+- 📁 **NAS folders** — mount a folder, or add an **SMB share** right in Settings (no OS mount).
+- 📱 **Mobile‑friendly** — YouTube‑Music‑style list → band, plus offline high‑quality synthesis (self‑hosted SoundFont).
+
+![Band + staff score view](https://raw.githubusercontent.com/psmon/DeskWeb/main/nas-app/img/midipalyer2.jpg)
+
+---
+
+## 🚀 Quick start
 
 ```bash
 docker run -d -p 29090:29090 \
   -v /path/to/midi:/music:ro \
-  psmon/midiplayer:1.2.1
+  psmon/midiplayer:latest
 ```
 
-접속: **http://localhost:29090**
+Open **http://localhost:29090**
 
 docker-compose:
 
 ```yaml
 services:
   midiplayer:
-    image: psmon/midiplayer:1.2.1
+    image: psmon/midiplayer:latest
     ports:
       - "29090:29090"
     volumes:
       - ./data:/data
-      - /path/to/midi:/music:ro      # 재생할 음악 폴더 (선택)
+      - /path/to/midi:/music:ro      # your music folder (optional)
     restart: unless-stopped
 ```
 
-폴더를 마운트하지 않아도, 실행 후 **⚙ 설정 → SMB 공유 추가**로 NAS 공유를 앱에서 바로 등록할 수 있습니다.
+No folder mounted? Open **⚙ Settings → add an SMB share** to browse a NAS share directly.
 
 ---
 
-## ⚙️ 설정
+## ⚙️ Configuration
 
-| 항목 | 기본값 | 설명 |
+| Item | Default | Notes |
 |---|---|---|
-| 컨테이너 포트 | `29090` | `-p 호스트:29090` 로 매핑 (비루트라 80 미만은 불가) |
-| `-v .../:/music:ro` | — | 재생할 MIDI 폴더 (읽기 전용) |
-| `-v .../:/data` | — | 설정 저장(settings.json) |
-| `MIDI_ROOTS` | `/music` | 접근 허용 폴더 (`;` 구분) |
+| Container port | `29090` | map with `-p <host>:29090` (runs as non‑root, so ports < 1024 aren't allowed) |
+| `-v .../:/music:ro` | — | folder of `.mid` files (read‑only) |
+| `-v .../:/data` | — | persists settings.json |
+| `MIDI_ROOTS` | `/music` | allowed folders (`;`‑separated), the browse boundary |
 
 ---
 
-## ⚠️ 원격 접속은 HTTPS 필요
+## ⚠️ Remote access needs HTTPS
 
-오디오 엔진(AudioWorklet)은 **보안 컨텍스트**에서만 동작합니다.
+The audio engine (Web Audio **AudioWorklet**) only runs in a **secure context**:
 
-- `http://localhost:29090` → ✅ (localhost 예외)
-- `http://<원격호스트>:포트` → ❌ (브라우저가 오디오 차단)
-- **`https://<원격...>` → ✅** ← 원격 사용 시 앞단에 HTTPS(리버스 프록시/LB + 신뢰 인증서)
+- `http://localhost:29090` → ✅ (localhost is exempt)
+- `http://<remote-host>:port` → ❌ (browser blocks audio)
+- **`https://<remote…>` → ✅** — put HTTPS (reverse proxy / LB + trusted cert) in front for remote use.
 
 ---
 
-## 🏷️ 태그 / 아키텍처
+## 🏷️ Tags / architecture
 
-- `psmon/midiplayer:1.2.1`, `psmon/midiplayer:latest`
-- 아키텍처: **linux/amd64** (arm64 필요 시 문의)
+- `psmon/midiplayer:latest`, versioned tags (e.g. `1.2.2`)
+- Architecture: **linux/amd64** (arm64 on request)
 
-소스: https://github.com/psmon/DeskWeb (`nas-app/`)
+Source: https://github.com/psmon/DeskWeb (`nas-app/`)
