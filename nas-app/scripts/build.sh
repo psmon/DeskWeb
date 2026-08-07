@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$HERE/packaging"
 
 echo "== [1/3] vendored assets =="
-"$HERE/scripts/fetch-assets.sh"
+bash "$HERE/scripts/fetch-assets.sh"
 
 echo "== [2/3] frontend (vite) → rootfs_common/www =="
 ( cd "$HERE/frontend" && npm ci && npm run build )
