@@ -19,7 +19,8 @@ offline playback, mobile‑friendly.
 - 🎹 **Live piano keyboard** — a vertical keyboard whose keys are struck as the music plays (default score view).
 - 🎼 **Staff score view (5‑line)** — real notation that scrolls line‑by‑line, kept light via page windowing.
 - 🥁 **Tap‑to‑jam drum pad** — click/touch the stage to add drums: **left = drum kit, right = DJ FX**, multi‑touch.
-- 🎧 **BitMidi built‑in** — 1,800+ pre‑categorized songs (8 genres) + live search, streamed with no local files.
+- 🎧 **BitMidi built‑in** — 2,200+ pre‑categorized songs + **instant full‑text search** (embedded DB, no whole‑list load), streamed with no local files.
+- 📂 **Persistent library** — scan a NAS folder once; your library, favorites & settings survive restarts in an embedded DB (incremental rescans). Big lists stay fast (paged, virtualized).
 - ❤️ **Favorites** — like any track into your own list.
 - 📁 **NAS folders** — mount a folder, or add an **SMB share** right in Settings (no OS mount).
 - 📱 **Mobile‑friendly** — YouTube‑Music‑style list → band, plus offline high‑quality synthesis (self‑hosted SoundFont).
@@ -62,7 +63,7 @@ No folder mounted? Open **⚙ Settings → add an SMB share** to browse a NAS sh
 |---|---|---|
 | Container port | `29090` | map with `-p <host>:29090` (runs as non‑root, so ports < 1024 aren't allowed) |
 | `-v .../:/music:ro` | — | folder of `.mid` files (read‑only) |
-| `-v .../:/data` | — | persists settings.json |
+| `-v .../:/data` | — | persists the app DB (settings, SMB shares, scanned library, catalog). Keep it to survive `docker rm`. |
 | `MIDI_ROOTS` | `/music` | allowed folders (`;`‑separated), the browse boundary |
 
 ---
@@ -80,6 +81,10 @@ The audio engine (Web Audio **AudioWorklet**) only runs in a **secure context**:
 ## 🏷️ Tags / architecture
 
 - `psmon/midiplayer:latest`, versioned tags (e.g. `1.3.0`)
-- Architecture: **linux/amd64** (arm64 on request)
+- **Multi-arch — `linux/amd64` + `linux/arm64` in one tag.** `docker pull` / `run`
+  auto-selects the image for your host, so the **same command runs natively** on:
+  - 🖥️ **Intel / AMD** — x86 servers, Intel Macs, most NAS boxes (amd64)
+  - 🍎 **Apple Silicon** Macs (M1–M4) and 🧩 **arm64 NAS** / SBCs (arm64)
+  - No emulation, no per-arch tag to pick — just `docker pull psmon/midiplayer:1.3.0`.
 
 Source: https://github.com/psmon/DeskWeb (`nas-app/`)

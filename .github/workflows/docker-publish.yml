@@ -135,6 +135,15 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
             ${{ env.IMAGE }}:latest
+      - name: Sync Docker Hub description (from DOCKERHUB.md)
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          readme-filepath: nas-app/docker/DOCKERHUB.md
+          short-description: "NAS/server MIDI player: band, piano, score, drum pad. Multi-arch (amd64+arm64)."
+
       - name: Summary
         run: |
           echo "### Pushed \`${IMAGE}:${{ needs.version.outputs.version }}\` (+ latest)" >> "$GITHUB_STEP_SUMMARY"
