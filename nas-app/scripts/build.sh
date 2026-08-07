@@ -29,6 +29,8 @@ dotnet publish "$HERE/backend/MidiAniPlayer.csproj" \
   -p:PublishAot=true \
   -o "$HERE/backend/artifacts/$ARCH"
 cp "$HERE/backend/artifacts/$ARCH/midi-ani-player" "$OUT/midi-ani-player"
+# Native shared libs the AOT binary dlopens at runtime (e.g. libe_sqlite3.so).
+cp "$HERE/backend/artifacts/$ARCH/"*.so "$OUT/" 2>/dev/null || true
 chmod +x "$OUT/midi-ani-player"
 
 echo "✓ assembled rootfs for $ARCH"

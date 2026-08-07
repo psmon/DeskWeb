@@ -39,6 +39,9 @@ DRUN --platform "$PLAT" mcr.microsoft.com/dotnet/sdk:10.0 bash -c "
     -p:PublishAot=true --artifacts-path /tmp/art -o /out
   mkdir -p /src/packaging/rootfs_$ARCH/bin
   cp /out/midi-ani-player /src/packaging/rootfs_$ARCH/bin/
+  # Native shared libs the AOT binary dlopens at runtime (e.g. libe_sqlite3.so
+  # for the embedded playlist DB) — NOT statically linked into the binary.
+  cp /out/*.so /src/packaging/rootfs_$ARCH/bin/ 2>/dev/null || true
   chmod +x /src/packaging/rootfs_$ARCH/bin/midi-ani-player
 "
 

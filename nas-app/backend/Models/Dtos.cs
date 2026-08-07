@@ -15,6 +15,17 @@ public sealed record FsListResponse(string Path, string? Parent, FsEntry[] Entri
 /// <summary>A MIDI file discovered by a recursive scan.</summary>
 public sealed record ScanEntry(string Title, string Path, string Folder, long Size);
 
+/// <summary>A playlist track row from the embedded DB (bitmidi or local scan).</summary>
+/// <param name="Source">"bitmidi" | "local".</param>
+/// <param name="Ref">Playback reference: a bitmidi.com url OR a local file path.</param>
+public sealed record TrackDto(long Id, string Source, string Title, string? Genre, string Ref, string? Folder);
+
+/// <summary>A page of tracks plus the total matching the query (for paging UI).</summary>
+public sealed record TrackPage(int Total, int Page, int PageSize, TrackDto[] Items);
+
+/// <summary>One entry in the bundled bitmidi seed file (frontend/public/bitmidi.json).</summary>
+public sealed record BitmidiSeed(string Title, string Genre, string Url);
+
 /// <summary>Persisted application settings (stored as JSON in the data dir).</summary>
 public sealed class AppSettings
 {

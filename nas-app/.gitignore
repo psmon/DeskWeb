@@ -10,6 +10,9 @@ frontend/*.tsbuildinfo
 packaging/rootfs_common/www/
 packaging/rootfs_amd64/bin/midi-ani-player
 packaging/rootfs_arm64/bin/midi-ani-player
+# native shared libs shipped next to the AOT binary (build artifacts)
+packaging/rootfs_amd64/bin/*.so
+packaging/rootfs_arm64/bin/*.so
 build_dir/
 
 # vendored large binaries (fetched by scripts/fetch-assets)
@@ -18,6 +21,14 @@ frontend/public/vendor/*.sf2
 
 # local dev data
 backend/data/
+
+# embedded playlist DB (generated at runtime; seeded from bitmidi.json)
+*.db
+*.db-wal
+*.db-shm
+
+# collector cursor state (local; catalog itself is committed via bitmidi.json)
+scripts/.secure-catalog.state.json
 
 # e2e (playwright) — local only
 .e2e/

@@ -1,13 +1,14 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   api,
   BITMIDI_GENRES,
-  type BitmidiCatalogEntry,
+  trackToPlayItem,
   type BitmidiResult,
   type FsListResponse,
   type FsRoot,
   type PlayItem,
   type ScanEntry,
+  type TrackDto,
 } from "../api/client";
 import { favorites } from "../state/favorites";
 
@@ -32,10 +33,14 @@ interface Props {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const PAGE_SIZE = 50;   // fetch 50 at a time (infinite scroll)
+const ROW_H = 40;       // fixed row height → virtualized rendering
+const OVERSCAN = 6;     // rows rendered above/below the viewport
+type Source = "bitmidi" | "local" | "fav";
 
 export default function PlayerView(props: Props) {
   const { roots, listing, songs, nowPath, busy, bandCanvasRef } = props;
-  const [source, setSource] = useState<"local" | "bitmidi" | "fav">("bitmidi");
+  const [source, setSource] = useState<Source>("bitmidi");
 
   // liked songs (localStorage), reactive
   const [favList, setFavList] = useState<PlayItem[]>(() => favorites.list());
@@ -47,34 +52,100 @@ export default function PlayerView(props: Props) {
   const [sidebarWidth, setSidebarWidth] = useState(340);
   const [scoreWidth, setScoreWidth] = useState(380);
 
-  // BitMidi state
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<BitmidiResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchErr, setSearchErr] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<BitmidiCatalogEntry[]>([]);
+  // ---- DB-backed playlist (bitmidi + local), paged + FTS search -------------
   const [genre, setGenre] = useState("전체");
+  const [queryInput, setQueryInput] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [items, setItems] = useState<TrackDto[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  // guards against out-of-order responses when filters change fast
+  const reqSeq = useRef(0);
+  const loadingRef = useRef(false); // synchronous guard so scroll can't stack loads
 
+  // virtualized scroll: only rows in view are in the DOM, so a 100k-row catalog
+  // renders the same handful of nodes as a 50-row one.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(500);
+
+  // online bitmidi.com live search (finds songs not yet secured in the DB)
+  const [online, setOnline] = useState<BitmidiResult[] | null>(null);
+  const [onlineLoading, setOnlineLoading] = useState(false);
+
+  const dbSource = source === "local" ? "local" : "bitmidi";
+
+  const load = useCallback(
+    async (reset: boolean) => {
+      if (loadingRef.current && !reset) return; // don't stack infinite-scroll loads
+      loadingRef.current = true;
+      const nextPage = reset ? 0 : page + 1;
+      const seq = ++reqSeq.current;
+      setLoading(true);
+      setLoadErr(null);
+      try {
+        const res = await api.tracks({
+          source: dbSource,
+          genre: dbSource === "bitmidi" ? genre : undefined,
+          q: appliedQuery || undefined,
+          page: nextPage,
+          pageSize: PAGE_SIZE,
+        });
+        if (seq !== reqSeq.current) return; // superseded
+        setTotal(res.total);
+        setPage(res.page);
+        setItems((prev) => (reset ? res.items : [...prev, ...res.items]));
+      } catch (e) {
+        if (seq === reqSeq.current) setLoadErr(String(e));
+      } finally {
+        if (seq === reqSeq.current) setLoading(false);
+        loadingRef.current = false;
+      }
+    },
+    [dbSource, genre, appliedQuery, page],
+  );
+
+  // Reset + reload whenever the filter set changes. `songs` is bumped by App on
+  // each local scan → reloads the local list from the DB after new files land.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (source === "bitmidi" && !catalog.length) {
-      api.bitmidiCatalog().then(setCatalog).catch(() => {});
-    }
-  }, [source, catalog.length]);
+    if (source === "fav") return;
+    setOnline(null);
+    setScrollTop(0);
+    if (listRef.current) listRef.current.scrollTop = 0;
+    load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbSource, genre, appliedQuery, songs]);
 
-  const browsing = !q.trim();
-  const browseList = catalog.filter((e) => genre === "전체" || e.genre === genre);
-  const bmShown = browsing ? browseList.slice(0, 600) : results;
+  // Track the scroll viewport height so the virtual window sizes correctly.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => setViewportH(el.clientHeight || 500);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [source]);
 
-  const doSearch = async () => {
-    if (!q.trim()) return;
-    setSearching(true);
-    setSearchErr(null);
+  const runSearch = () => setAppliedQuery(queryInput.trim());
+  const clearSearch = () => {
+    setQueryInput("");
+    setAppliedQuery("");
+  };
+
+  const searchOnline = async () => {
+    const q = queryInput.trim();
+    if (!q) return;
+    setOnlineLoading(true);
     try {
-      setResults(await api.bitmidiSearch(q));
-    } catch (e) {
-      setSearchErr(String(e));
+      setOnline(await api.bitmidiSearch(q));
+    } catch {
+      setOnline([]);
     } finally {
-      setSearching(false);
+      setOnlineLoading(false);
     }
   };
 
@@ -101,16 +172,10 @@ export default function PlayerView(props: Props) {
     document.body.style.cursor = "col-resize";
   };
 
-  // build a queue from a local file listing / library / bitmidi list
-  const localItems = (list: { title: string; path: string }[]): PlayItem[] =>
-    list.map((x) => ({ title: x.title, id: x.path, kind: "local" }));
-  const bmItems = (list: { title: string; url: string }[]): PlayItem[] =>
-    list.map((x) => ({ title: x.title, id: x.url, kind: "bitmidi" }));
-
   // On mobile, selecting a track collapses the list so the band becomes the main
   // view (YouTube-Music style). Desktop keeps the list open.
-  const selectPlay = (items: PlayItem[], index: number) => {
-    props.onPlayQueue(items, index);
+  const selectPlay = (queue: PlayItem[], index: number) => {
+    props.onPlayQueue(queue, index);
     if (window.matchMedia("(max-width: 700px)").matches) setSidebarOpen(false);
   };
 
@@ -126,6 +191,58 @@ export default function PlayerView(props: Props) {
       {favSet.has(item.id) ? "❤" : "🤍"}
     </button>
   );
+
+  // Virtualized, infinite-scrolling DB-track list. Only the rows within the
+  // viewport (± overscan) are in the DOM, and the next 50 load automatically as
+  // you near the bottom — so the page stays fast whether the catalog is 50 or
+  // 100k songs. The queue passed to the player is the whole loaded set.
+  const trackList = () => {
+    const queue = items.map(trackToPlayItem);
+    const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+    const end = Math.min(items.length, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN);
+    const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      setScrollTop(el.scrollTop);
+      // near the bottom of what's loaded, and more exists → pull the next page
+      if (items.length < total && el.scrollTop + el.clientHeight > (items.length - 8) * ROW_H) {
+        load(false);
+      }
+    };
+    return (
+      <div className="songs vsongs" ref={listRef} onScroll={onScroll}>
+        {!items.length && !loading && (
+          <div className="hint">
+            {appliedQuery
+              ? "검색 결과 없음."
+              : source === "local"
+                ? "폴더를 스캔하면 곡이 여기 나타납니다."
+                : "카탈로그 없음."}
+          </div>
+        )}
+        <div className="vspacer" style={{ height: items.length * ROW_H }}>
+          {items.slice(start, end).map((t, i) => {
+            const idx = start + i;
+            const item = trackToPlayItem(t);
+            return (
+              <div
+                key={`${t.source}:${t.id}`}
+                className={"row" + (nowPath === t.ref ? " active" : "")}
+                style={{ top: idx * ROW_H, height: ROW_H }}
+                onClick={() => selectPlay(queue, idx)}
+              >
+                {heart(item)}
+                <span className="t">{t.title}</span>
+                <span className="f">{t.genre ?? t.folder ?? ""}</span>
+              </div>
+            );
+          })}
+        </div>
+        {loading && (
+          <div className="vloading">불러오는 중… {total ? `(${items.length}/${total})` : ""}</div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="playerview" hidden={props.hidden}>
@@ -148,119 +265,7 @@ export default function PlayerView(props: Props) {
           </button>
         </div>
 
-        {source === "local" ? (
-          <>
-            <section className="panel browser">
-              <h3>NAS 폴더</h3>
-              <div className="roots">
-                {roots.map((r) => (
-                  <button key={r.path} onClick={() => props.onNavigate(r.path)}>
-                    📁 {r.name}
-                  </button>
-                ))}
-                {!roots.length && <span className="hint">설정에서 폴더를 추가하세요.</span>}
-              </div>
-              {listing && (
-                <>
-                  <div className="crumb" title={listing.path}>
-                    {listing.path}
-                  </div>
-                  <ul className="entries">
-                    {listing.parent && (
-                      <li>
-                        <button onClick={() => props.onNavigate(listing.parent!)}>⬆ ..</button>
-                      </li>
-                    )}
-                    {listing.entries.map((e) =>
-                      e.type === "dir" ? (
-                        <li key={e.path}>
-                          <button onClick={() => props.onNavigate(e.path)}>📁 {e.name}</button>
-                        </li>
-                      ) : (
-                        <li key={e.path}>
-                          <button
-                            onClick={() => {
-                              const files = listing.entries.filter((x) => x.type === "file");
-                              selectPlay(
-                                localItems(files.map((f) => ({ title: f.name, path: f.path }))),
-                                files.findIndex((f) => f.path === e.path),
-                              );
-                            }}
-                          >
-                            🎼 {e.name}
-                          </button>
-                        </li>
-                      ),
-                    )}
-                  </ul>
-                  <button className="scan" onClick={props.onScan} disabled={busy}>
-                    {busy ? "…" : "🔎 이 폴더 스캔"}
-                  </button>
-                </>
-              )}
-            </section>
-
-            <section className="panel library">
-              <h3>라이브러리 {songs.length ? `(${songs.length})` : ""}</h3>
-              <ul className="songs">
-                {songs.map((s, i) => (
-                  <li
-                    key={s.path}
-                    className={nowPath === s.path ? "active" : ""}
-                    onClick={() => selectPlay(localItems(songs), i)}
-                  >
-                    {heart({ title: s.title, id: s.path, kind: "local" })}
-                    <span className="t">{s.title}</span>
-                    <span className="f">{s.folder}</span>
-                  </li>
-                ))}
-                {!songs.length && <li className="hint">폴더를 스캔하면 곡이 여기 나타납니다.</li>}
-              </ul>
-            </section>
-          </>
-        ) : source === "bitmidi" ? (
-          <section className="bitmidi">
-            <h3>BitMidi 온라인 {browsing ? `간편재생 (${catalog.length})` : "검색"}</h3>
-            <div className="search">
-              <input
-                value={q}
-                placeholder="곡 제목 검색… (전체 라이브러리)"
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && doSearch()}
-              />
-              <button onClick={doSearch} disabled={searching}>
-                {searching ? "…" : "🔎"}
-              </button>
-            </div>
-            {browsing && (
-              <div className="bm-genres">
-                {BITMIDI_GENRES.map((g) => (
-                  <button key={g} className={genre === g ? "on" : ""} onClick={() => setGenre(g)}>
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
-            {searchErr && <div className="error">{searchErr}</div>}
-            <ul className="songs">
-              {bmShown.map((e, i) => (
-                <li
-                  key={e.url}
-                  className={nowPath === e.url ? "active" : ""}
-                  onClick={() => selectPlay(bmItems(bmShown), i)}
-                >
-                  {heart({ title: e.title, id: e.url, kind: "bitmidi" })}
-                  <span className="t">{e.title}</span>
-                  {"genre" in e && <span className="f">{(e as BitmidiCatalogEntry).genre}</span>}
-                </li>
-              ))}
-              {browsing && !catalog.length && <li className="hint">카탈로그 로딩…</li>}
-              {!browsing && !results.length && !searching && (
-                <li className="hint">검색 결과 없음 (인터넷 필요).</li>
-              )}
-            </ul>
-          </section>
-        ) : (
+        {source === "fav" ? (
           <section className="bitmidi">
             <h3>❤️ 좋아요 {favList.length ? `(${favList.length})` : ""}</h3>
             <ul className="songs">
@@ -275,10 +280,128 @@ export default function PlayerView(props: Props) {
                   <span className="f">{f.kind === "bitmidi" ? "BitMidi" : "내 MIDI"}</span>
                 </li>
               ))}
-              {!favList.length && (
-                <li className="hint">곡 옆의 하트를 누르면 여기에 모입니다.</li>
-              )}
+              {!favList.length && <li className="hint">곡 옆의 하트를 누르면 여기에 모입니다.</li>}
             </ul>
+          </section>
+        ) : (
+          <section className="bitmidi">
+            <h3>
+              {source === "bitmidi" ? "🎧 BitMidi" : "📂 내 라이브러리"}{" "}
+              <span className="count">{appliedQuery ? `검색 ${total}` : total}</span>
+            </h3>
+
+            {source === "local" && (
+              <div className="panel browser">
+                <div className="roots">
+                  {roots.map((r) => (
+                    <button key={r.path} onClick={() => props.onNavigate(r.path)}>
+                      📁 {r.name}
+                    </button>
+                  ))}
+                  {!roots.length && <span className="hint">설정에서 폴더를 추가하세요.</span>}
+                </div>
+                {listing && (
+                  <>
+                    <div className="crumb" title={listing.path}>
+                      {listing.path}
+                    </div>
+                    <ul className="entries">
+                      {listing.parent && (
+                        <li>
+                          <button onClick={() => props.onNavigate(listing.parent!)}>⬆ ..</button>
+                        </li>
+                      )}
+                      {listing.entries.map((e) =>
+                        e.type === "dir" ? (
+                          <li key={e.path}>
+                            <button onClick={() => props.onNavigate(e.path)}>📁 {e.name}</button>
+                          </li>
+                        ) : (
+                          <li key={e.path}>
+                            <button
+                              onClick={() => {
+                                const files = listing.entries.filter((x) => x.type === "file");
+                                selectPlay(
+                                  files.map((f) => ({ title: f.name, id: f.path, kind: "local" })),
+                                  files.findIndex((f) => f.path === e.path),
+                                );
+                              }}
+                            >
+                              🎼 {e.name}
+                            </button>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                    <button className="scan" onClick={props.onScan} disabled={busy}>
+                      {busy ? "…" : "🔎 이 폴더 스캔 → DB"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="search">
+              <input
+                value={queryInput}
+                placeholder={source === "bitmidi" ? "제목 검색 (내장 DB 전체)" : "내 곡 제목 검색"}
+                onChange={(e) => setQueryInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runSearch();
+                }}
+              />
+              <button onClick={runSearch} disabled={loading}>
+                🔎
+              </button>
+              {appliedQuery && (
+                <button className="clear" title="검색 지우기" onClick={clearSearch}>
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {source === "bitmidi" && !appliedQuery && (
+              <div className="bm-genres">
+                {BITMIDI_GENRES.map((g) => (
+                  <button key={g} className={genre === g ? "on" : ""} onClick={() => setGenre(g)}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {loadErr && <div className="error">{loadErr}</div>}
+
+            {trackList()}
+
+            {source === "bitmidi" && queryInput.trim() && (
+              <div className="online">
+                <button className="online-btn" onClick={searchOnline} disabled={onlineLoading}>
+                  {onlineLoading ? "온라인 검색 중…" : "🌐 온라인(bitmidi.com)에서 더 찾기"}
+                </button>
+                {online && (
+                  <ul className="songs">
+                    {online.map((r, i) => (
+                      <li
+                        key={r.url}
+                        className={nowPath === r.url ? "active" : ""}
+                        onClick={() =>
+                          selectPlay(
+                            online.map((x) => ({ title: x.title, id: x.url, kind: "bitmidi" as const })),
+                            i,
+                          )
+                        }
+                      >
+                        {heart({ title: r.title, id: r.url, kind: "bitmidi" })}
+                        <span className="t">{r.title}</span>
+                        <span className="f">🌐 온라인</span>
+                      </li>
+                    ))}
+                    {!online.length && <li className="hint">온라인 결과 없음 (인터넷 필요).</li>}
+                  </ul>
+                )}
+              </div>
+            )}
           </section>
         )}
       </aside>

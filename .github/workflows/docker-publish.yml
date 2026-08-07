@@ -1,0 +1,142 @@
+name: docker publish
+
+# Build + push the MULTI-ARCH (amd64 + arm64) MIDI Ani Player image to Docker Hub.
+#
+# Deploy split (by design):
+#   • Docker Hub  → automated here, on a `midiplayer-v*` tag.
+#   • NAS / UGOS UPK → LOCAL ONLY (scripts/build.sh + scripts/pack-upk.sh).
+#
+# Tag namespace (kept distinct to avoid collisions):
+#   v*            → DeskWeb GitHub Pages (deploy-pages.yml)
+#   nas-app-v*    → UPK (manual/local; auto-trigger disabled)
+#   midiplayer-v* → THIS workflow (e.g. midiplayer-v1.3.0 → image 1.3.0 + latest)
+#
+# Tag a commit on main:  git tag midiplayer-v1.3.0 && git push origin midiplayer-v1.3.0
+on:
+  push:
+    tags:
+      - "midiplayer-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "image version to publish (e.g. 1.3.0)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: psmon/midiplayer
+
+jobs:
+  # Resolve the version and refuse to overwrite an already-published one.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#midiplayer-v}"   # midiplayer-v1.3.0 -> 1.3.0
+          fi
+          if ! echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version '$V' is not semver (X.Y.Z)"; exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Publishing $IMAGE:$V"
+      - name: Ensure version is new on Docker Hub (no clobber)
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/${IMAGE}/tags/${V}/")
+          if [ "$code" = "200" ]; then
+            echo "::error::${IMAGE}:${V} already exists on Docker Hub — bump the version."; exit 1
+          fi
+          echo "OK: ${V} is not published yet."
+
+  # Native AOT per arch (no QEMU for the heavy compile) → upload bin (binary + .so).
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm   # native arm64 runner → no cross toolchain
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: nas-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install AOT prerequisites
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Build AOT + www (${{ matrix.arch }})
+        run: bash scripts/build.sh ${{ matrix.arch }}
+      - name: Upload bin (binary + native .so)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.arch }}
+          path: nas-app/packaging/rootfs_${{ matrix.arch }}/bin/
+      - name: Upload www (arch-independent, once)
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: www
+          path: nas-app/packaging/rootfs_common/www
+
+  # Assemble both arches + www, then buildx a multi-arch manifest and push.
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nas-app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: nas-app/_artifacts
+      - name: Stage rootfs (both arches + www)
+        run: |
+          mkdir -p packaging/rootfs_amd64/bin packaging/rootfs_arm64/bin packaging/rootfs_common/www
+          cp -r _artifacts/bin-amd64/. packaging/rootfs_amd64/bin/
+          cp -r _artifacts/bin-arm64/. packaging/rootfs_arm64/bin/
+          cp -r _artifacts/www/. packaging/rootfs_common/www/
+          chmod +x packaging/rootfs_amd64/bin/midi-ani-player packaging/rootfs_arm64/bin/midi-ani-player
+          ls -la packaging/rootfs_amd64/bin packaging/rootfs_arm64/bin
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build & push (linux/amd64 + linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: nas-app
+          file: nas-app/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
+      - name: Summary
+        run: |
+          echo "### Pushed \`${IMAGE}:${{ needs.version.outputs.version }}\` (+ latest)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- platforms: linux/amd64, linux/arm64" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://hub.docker.com/r/${IMAGE}/tags" >> "$GITHUB_STEP_SUMMARY"

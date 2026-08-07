@@ -100,8 +100,26 @@ export const api = {
   /** URL to stream a BitMidi file through the backend proxy. */
   bitmidiFileUrl: (url: string) => `/api/bitmidi/file?url=${encodeURIComponent(url)}`,
 
-  /** Bundled, pre-categorized BitMidi catalog (browse by genre, no files needed). */
-  bitmidiCatalog: () => getJson<BitmidiCatalogEntry[]>("/bitmidi.json"),
+  /**
+   * Paged/full-text query over the embedded playlist DB (bitmidi + local scan).
+   * Replaces loading the whole catalog JSON — the DB scales and does FTS5 search
+   * server-side. `q` present → full-text title search; else browse by genre.
+   */
+  tracks: (p: {
+    source?: "bitmidi" | "local";
+    genre?: string;
+    q?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<TrackPage> => {
+    const qs = new URLSearchParams();
+    if (p.source) qs.set("source", p.source);
+    if (p.genre && p.genre !== "전체") qs.set("genre", p.genre);
+    if (p.q && p.q.trim()) qs.set("q", p.q.trim());
+    qs.set("page", String(p.page ?? 0));
+    qs.set("pageSize", String(p.pageSize ?? 100));
+    return getJson<TrackPage>(`/api/tracks?${qs.toString()}`);
+  },
 
   /** Test an SMB connection (Settings). Blank password reuses a stored one. */
   smbTest: async (s: SmbShare): Promise<{ ok: boolean }> => {
@@ -140,13 +158,30 @@ export function streamUrlFor(item: PlayItem): string {
   return item.kind === "local" ? api.streamUrl(item.id) : api.bitmidiFileUrl(item.id);
 }
 
-export interface BitmidiCatalogEntry {
+/** A playlist row from the embedded DB (source = bitmidi online ref or local file). */
+export interface TrackDto {
+  id: number;
+  source: "bitmidi" | "local";
   title: string;
-  genre: string;
-  url: string;
+  genre: string | null;
+  ref: string;
+  folder: string | null;
 }
 
-/** Genre tabs for the bundled catalog ("전체" = all). */
+/** A page of tracks plus the total matching the query (for paging UI). */
+export interface TrackPage {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: TrackDto[];
+}
+
+/** A DB track → a playable queue item. */
+export function trackToPlayItem(t: TrackDto): PlayItem {
+  return { title: t.title, id: t.ref, kind: t.source === "bitmidi" ? "bitmidi" : "local" };
+}
+
+/** Genre tabs for the bitmidi catalog ("전체" = all; "기타" = collector's fallback bucket). */
 export const BITMIDI_GENRES = [
   "전체",
   "인기",
@@ -157,4 +192,5 @@ export const BITMIDI_GENRES = [
   "클래식",
   "재즈",
   "캐럴",
+  "기타",
 ];

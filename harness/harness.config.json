@@ -3,10 +3,10 @@
   "$schemaVersion": "1.0.0",
   "name": "DeskWeb Harness",
   "description": "qooxdoo 기반 웹 데스크톱(DeskWeb) 품질 관리 하네스",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "agents": ["tamer"],
-  "engine": [],
-  "knowledge": ["nas-app-deployment"],
+  "engine": ["secure-catalog"],
+  "knowledge": ["nas-app-deployment", "multiarch-build"],
   "created": "2026-07-24",
-  "lastUpdated": "2026-08-05"
+  "lastUpdated": "2026-08-07"
 }

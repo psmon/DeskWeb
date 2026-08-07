@@ -12,7 +12,7 @@
 spec_version: "2.1"
 # app_id rule (ugcli): lowercase letters/numbers/dots, ≥2 dots, no hyphens.
 app_id: com.webnori.midiplayer
-version: 1.2.2
+version: 1.3.0
 
 support_arch:
   - amd64

@@ -85,7 +85,16 @@ bash scripts/build.sh arm64          # UI + AOT(arm64)
 cd packaging && ugcli pack --build 1  # → {arch}_com.webnori.midiplayer_1.0.0.0001.upk
 ```
 
-CI: `../.github/workflows/nas-app-release.yml` — `nas-app-v*` 태그 push 시 amd64/arm64 빌드 후 GitHub Release에 산출물 게시.
+### CI/배포 분리 (태그 네임스페이스)
+
+| 대상 | 트리거 | 워크플로 | 방식 |
+|---|---|---|---|
+| **Docker Hub 이미지** | `midiplayer-v*` 태그 | `../.github/workflows/docker-publish.yml` | **자동** — amd64+arm64 네이티브 빌드 → **멀티아치 매니페스트 push** (`psmon/midiplayer:<ver>` + `latest`). 이미 게시된 버전이면 실패(충돌 방지). |
+| **NAS / UGOS UPK** | — | `nas-app-release.yml` (`workflow_dispatch` 수동) | **로컬 우선** — `scripts/build.sh` + `pack-upk.sh`. 태그 자동빌드 비활성화. |
+| DeskWeb Pages | `v*` 태그 | `deploy-pages.yml` | (별개 앱) |
+
+> Docker 릴리스: main 커밋에 `git tag midiplayer-v1.3.0 && git push origin midiplayer-v1.3.0`.
+> 시크릿 필요: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (repo Settings → Secrets → Actions).
 
 ## 배포 경로 A — Docker / Container Manager (승인 불필요, 권장 테스트)
 

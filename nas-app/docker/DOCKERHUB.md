@@ -79,7 +79,7 @@ The audio engine (Web Audio **AudioWorklet**) only runs in a **secure context**:
 
 ## 🏷️ Tags / architecture
 
-- `psmon/midiplayer:latest`, versioned tags (e.g. `1.2.2`)
+- `psmon/midiplayer:latest`, versioned tags (e.g. `1.3.0`)
 - Architecture: **linux/amd64** (arm64 on request)
 
 Source: https://github.com/psmon/DeskWeb (`nas-app/`)

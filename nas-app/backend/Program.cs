@@ -55,7 +55,10 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
 
-var settings = new SettingsStore(dataDir);
+// Embedded DB (bitmidi + local scan + settings) — paged browse + FTS5 search.
+// One writable data dir persists everything; settings migrate from any legacy JSON.
+var trackDb = new TrackDb(dataDir);
+var settings = new SettingsStore(trackDb, dataDir);
 // Base roots = the actual access grants: UGOS-authorized shared folders ($UGAPP_SHARED_DIR)
 // ∪ MIDI_ROOTS (Docker mounts). These define the security boundary — nothing outside
 // them is ever browsable. The folder picker and scan-folder validation use ONLY these.
@@ -70,6 +73,9 @@ var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 
 // ---- Static UI (www/) ---------------------------------------------------
 var wwwRoot = ResolveWwwRoot();
+// Seed/refresh the bitmidi catalog from the bundled JSON (idempotent, hash-guarded).
+// Growing bitmidi.json (via the collector) simply adds rows on the next start.
+trackDb.SeedBitmidi(Path.Combine(wwwRoot, "bitmidi.json"));
 if (Directory.Exists(wwwRoot))
 {
     var provider = new PhysicalFileProvider(wwwRoot);
@@ -132,10 +138,22 @@ api.MapGet("/fs/explore", Results<Ok<FsListResponse>, NotFound<ErrorResponse>> (
 api.MapGet("/fs/scan", Results<Ok<ScanEntry[]>, NotFound<ErrorResponse>> (string? path) =>
 {
     var result = SmbBrowser.IsSmb(path) ? smb.Scan(path!) : browser.Scan(path);
-    return result is null
-        ? TypedResults.NotFound(new ErrorResponse("path not allowed or not found"))
-        : TypedResults.Ok(result);
+    if (result is null)
+        return TypedResults.NotFound(new ErrorResponse("path not allowed or not found"));
+    // Persist scanned files into the playlist DB (source='local') so the library
+    // survives restarts (no rescan needed) and scales with paging/FTS. Incremental:
+    // resync this folder subtree so deleted files drop off. SMB paths prune by their
+    // own smb:// prefix; local paths by the resolved real path.
+    var scanRoot = SmbBrowser.IsSmb(path) ? path : browser.Resolve(path);
+    trackDb.SyncLocalFolder(scanRoot, result);
+    return TypedResults.Ok(result);
 });
+
+// Unified playlist query — bitmidi + local, genre-filtered, FTS5 full-text on
+// title, paged. Replaces shipping the whole bitmidi.json to the browser.
+//   /api/tracks?source=bitmidi&genre=게임&q=mario&page=0&pageSize=100
+api.MapGet("/tracks", (string? source, string? genre, string? q, int? page, int? pageSize) =>
+    TypedResults.Ok(trackDb.Query(source, genre, q, page ?? 0, pageSize ?? 100)));
 
 // Stream a MIDI file. SMB files are read into memory; local files stream.
 api.MapGet("/stream", (string? path) =>

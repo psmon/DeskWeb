@@ -4,20 +4,21 @@ using MidiAniPlayer.Models;
 namespace MidiAniPlayer.Services;
 
 /// <summary>
-/// Loads and persists <see cref="AppSettings"/> as a JSON file in the writable
-/// data directory. Thread-safe for the small read/write volume this app sees.
+/// Loads and persists <see cref="AppSettings"/> in the embedded DB (a single JSON
+/// row), so one mounted data dir persists settings + library + catalog together.
+/// A pre-existing settings.json (older versions) is migrated into the DB once.
+/// Thread-safe for the small read/write volume this app sees.
 /// </summary>
 public sealed class SettingsStore
 {
-    private readonly string _path;
+    private readonly TrackDb _db;
     private readonly Lock _gate = new();
     private AppSettings _cache;
 
-    public SettingsStore(string dataDir)
+    public SettingsStore(TrackDb db, string? legacyDataDir = null)
     {
-        Directory.CreateDirectory(dataDir);
-        _path = Path.Combine(dataDir, "settings.json");
-        _cache = Load();
+        _db = db;
+        _cache = Load(legacyDataDir);
     }
 
     public AppSettings Get()
@@ -31,29 +32,46 @@ public sealed class SettingsStore
         {
             _cache = Clone(incoming);
             var json = JsonSerializer.Serialize(_cache, AppJsonContext.Default.AppSettings);
-            // Atomic-ish write: temp file then move.
-            var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, json);
-            File.Move(tmp, _path, overwrite: true);
+            _db.SaveSettingsJson(json);
             return Clone(_cache);
         }
     }
 
-    private AppSettings Load()
+    private AppSettings Load(string? legacyDataDir)
     {
+        // 1) DB is the source of truth.
         try
         {
-            if (File.Exists(_path))
+            var json = _db.GetSettingsJson();
+            if (!string.IsNullOrWhiteSpace(json))
             {
-                var json = File.ReadAllText(_path);
                 var parsed = JsonSerializer.Deserialize(json, AppJsonContext.Default.AppSettings);
                 if (parsed is not null) return parsed;
             }
         }
-        catch
+        catch { /* fall through to migration / defaults */ }
+
+        // 2) One-time migration: import an older settings.json, then persist to DB.
+        if (!string.IsNullOrWhiteSpace(legacyDataDir))
         {
-            // Corrupt/unreadable settings fall back to defaults rather than crash.
+            try
+            {
+                var legacy = Path.Combine(legacyDataDir, "settings.json");
+                if (File.Exists(legacy))
+                {
+                    var parsed = JsonSerializer.Deserialize(
+                        File.ReadAllText(legacy), AppJsonContext.Default.AppSettings);
+                    if (parsed is not null)
+                    {
+                        _db.SaveSettingsJson(
+                            JsonSerializer.Serialize(parsed, AppJsonContext.Default.AppSettings));
+                        return parsed;
+                    }
+                }
+            }
+            catch { /* corrupt legacy file → defaults */ }
         }
+
         return new AppSettings();
     }
 

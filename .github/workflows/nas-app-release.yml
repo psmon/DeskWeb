@@ -1,11 +1,13 @@
-name: nas-app release
+name: nas-app release (UPK — manual only)
 
 # Builds the MIDI Ani Player UPK for UGOS (amd64 + arm64) and publishes the
-# .upk artifacts to a GitHub Release. Triggered by a tag like `nas-app-v1.0.0`.
+# .upk artifacts to a GitHub Release.
+#
+# POLICY: NAS / UGOS UPK builds are LOCAL-FIRST (scripts/build.sh + pack-upk.sh).
+# The `nas-app-v*` tag auto-trigger is intentionally DISABLED so tagging only
+# drives the Docker Hub image (docker-publish.yml). This workflow remains as an
+# opt-in manual runner for when a CI-built UPK is explicitly wanted.
 on:
-  push:
-    tags:
-      - "nas-app-v*"
   workflow_dispatch:
 
 permissions:
